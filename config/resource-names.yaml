@@ -1,0 +1,25 @@
+resource_names:
+  dynamodb:
+    accounts: bluey-accounts
+    applications: bluey-applications
+    bankers: bluey-bankers
+    credit: bluey-credit
+    customers: bluey-customers
+    documents: bluey-documents
+    messages: bluey-messages
+    sessions: bluey-sessions
+    transactions: bluey-transactions
+  s3:
+    documents: bluey-documents
+    knowledge_base: kb-bluey
+  cognito:
+    user_pool: bluey-user-pool
+  apigateway:
+    http_api: bluey-api
+  lambda:
+    chat_proxy: bluey-chat-proxy
+    account_opening_proxy: bluey-account-opening-proxy
+    banker_api: bluey-banker-api
+    document_api: bluey-document-api
+    credit_api: bluey-credit-api
+    dynamodb_tool: bluey-sessions
