@@ -3,6 +3,10 @@
 
 Run this from a machine authenticated to the source account. The resulting JSON files are
 configuration snapshots, not secrets, but review them before committing.
+
+No harness IDs are hardcoded here — this repo is meant to move between accounts,
+and stale IDs from a previous account would just fail with ResourceNotFoundException.
+If no IDs are passed explicitly, every harness currently in the account is captured.
 """
 import argparse
 import json
@@ -11,15 +15,28 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
-DEFAULT_IDS = [
-    "harness_nxkh1-5J9xGVZCk5",
-    "bluey_credit_harness-47LHHV15B7",
-    "bluey_account_opening_harness-3B5upfrRSz",
-]
+
+def _discover_all_harness_ids(client) -> list[str]:
+    ids = []
+    paginator = client.get_paginator("list_harnesses")
+    for page in paginator.paginate():
+        for h in page.get("harnessSummaries", page.get("items", [])):
+            harness_id = h.get("harnessId") or h.get("id")
+            if harness_id:
+                ids.append(harness_id)
+    return ids
 
 
 def capture(harness_ids: list[str], output_dir: Path, region: str) -> int:
     client = boto3.client("bedrock-agentcore-control", region_name=region)
+
+    if not harness_ids:
+        harness_ids = _discover_all_harness_ids(client)
+        if not harness_ids:
+            print("No harnesses found in this account/region.")
+            return 0
+        print(f"No harness IDs given — discovered {len(harness_ids)}: {harness_ids}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     for harness_id in harness_ids:
         try:
@@ -36,7 +53,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--output", default="agentcore/captured")
-    parser.add_argument("harness_ids", nargs="*", default=DEFAULT_IDS)
+    parser.add_argument("harness_ids", nargs="*", default=[], help="Specific harness IDs to capture; omit to capture every harness found in the account.")
     args = parser.parse_args()
     try:
         return capture(args.harness_ids, Path(args.output), args.region)

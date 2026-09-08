@@ -1,0 +1,469 @@
+{
+  "feature_cols": [
+    "age",
+    "number_of_dependents",
+    "monthly_income",
+    "monthly_expenses",
+    "account_tenure_years",
+    "monthly_transactions",
+    "avg_transaction_value",
+    "digital_login_frequency",
+    "branch_visit_count",
+    "late_payment_count",
+    "has_savings_account",
+    "has_credit_card",
+    "has_home_loan",
+    "has_personal_loan",
+    "has_vehicle_finance",
+    "has_investment_account",
+    "active_products_count",
+    "has_mymo_account",
+    "has_achieva_account",
+    "has_prestige_banking",
+    "has_private_banking",
+    "has_signature_banking",
+    "has_blue_credit_card",
+    "has_gold_credit_card",
+    "has_titanium_credit_card",
+    "has_platinum_credit_card",
+    "has_world_citizen_credit_card",
+    "has_diners_club_platinum_credit_card",
+    "has_term_loan",
+    "has_revolving_loan",
+    "has_overdraft",
+    "has_investment_backed_lending",
+    "has_student_loan",
+    "has_fixed_deposit",
+    "has_tax_free_savings",
+    "credit_score",
+    "loan_utilisation_rate",
+    "days_since_last_default",
+    "has_ever_defaulted",
+    "savings_rate",
+    "gender_Male",
+    "marital_status_Married",
+    "marital_status_Single",
+    "marital_status_Widowed",
+    "education_level_Diploma",
+    "education_level_Matric",
+    "education_level_No Matric",
+    "education_level_Postgraduate",
+    "employment_status_Retired",
+    "employment_status_Self-Employed",
+    "employment_status_Student",
+    "employment_status_Unemployed",
+    "province_Free State",
+    "province_Gauteng",
+    "province_KwaZulu-Natal",
+    "province_Limpopo",
+    "province_Mpumalanga",
+    "province_North West",
+    "province_Northern Cape",
+    "province_Western Cape"
+  ],
+  "categorical_to_encode": [
+    "gender",
+    "marital_status",
+    "education_level",
+    "employment_status",
+    "province"
+  ],
+  "cluster_names": {
+    "0": "Stable Middles",
+    "1": "Premium Loyalists",
+    "2": "Financially Vulnerable",
+    "3": "Emerging Potentials"
+  },
+  "cluster_profile": {
+    "0": {
+      "monthly_income": 7297.846,
+      "savings_rate": 0.377,
+      "account_tenure_years": 5.109,
+      "credit_score": 594.58,
+      "loan_utilisation_rate": 0.216,
+      "late_payment_count": 1.362,
+      "has_ever_defaulted": 0.56,
+      "digital_login_frequency": 12.285,
+      "branch_visit_count": 3.81,
+      "monthly_transactions": 15.085,
+      "avg_transaction_value": 371.261,
+      "active_products_count": 1.448,
+      "has_credit_card": 0.195,
+      "has_home_loan": 0.057,
+      "has_personal_loan": 0.245,
+      "has_vehicle_finance": 0.112,
+      "has_investment_account": 0.013,
+      "dominant_churn_risk": "Medium",
+      "cluster_size": 636
+    },
+    "1": {
+      "monthly_income": 58459.041,
+      "savings_rate": 0.402,
+      "account_tenure_years": 8.439,
+      "credit_score": 669.642,
+      "loan_utilisation_rate": 0.375,
+      "late_payment_count": 1.369,
+      "has_ever_defaulted": 0.399,
+      "digital_login_frequency": 18.413,
+      "branch_visit_count": 3.03,
+      "monthly_transactions": 49.14,
+      "avg_transaction_value": 729.76,
+      "active_products_count": 4.716,
+      "has_credit_card": 0.919,
+      "has_home_loan": 0.867,
+      "has_personal_loan": 0.561,
+      "has_vehicle_finance": 0.694,
+      "has_investment_account": 0.675,
+      "dominant_churn_risk": "Low",
+      "cluster_size": 271
+    },
+    "2": {
+      "monthly_income": 23349.377,
+      "savings_rate": 0.38,
+      "account_tenure_years": 6.212,
+      "credit_score": 605.934,
+      "loan_utilisation_rate": 0.448,
+      "late_payment_count": 1.811,
+      "has_ever_defaulted": 0.589,
+      "digital_login_frequency": 14.809,
+      "branch_visit_count": 3.468,
+      "monthly_transactions": 25.575,
+      "avg_transaction_value": 642.194,
+      "active_products_count": 3.569,
+      "has_credit_card": 0.817,
+      "has_home_loan": 0.506,
+      "has_personal_loan": 0.497,
+      "has_vehicle_finance": 0.579,
+      "has_investment_account": 0.185,
+      "dominant_churn_risk": "Low",
+      "cluster_size": 682
+    },
+    "3": {
+      "monthly_income": 4030.733,
+      "savings_rate": 0.046,
+      "account_tenure_years": 5.001,
+      "credit_score": 491.891,
+      "loan_utilisation_rate": 0.272,
+      "late_payment_count": 4.017,
+      "has_ever_defaulted": 0.808,
+      "digital_login_frequency": 12.263,
+      "branch_visit_count": 3.774,
+      "monthly_transactions": 12.937,
+      "avg_transaction_value": 380.981,
+      "active_products_count": 1.214,
+      "has_credit_card": 0.195,
+      "has_home_loan": 0.015,
+      "has_personal_loan": 0.217,
+      "has_vehicle_finance": 0.056,
+      "has_investment_account": 0.0,
+      "dominant_churn_risk": "High",
+      "cluster_size": 411
+    }
+  },
+  "product_catalogue": {
+    "MyMo Account": {
+      "description": "A low-cost everyday bank account for routine banking, card payments, digital banking and money transfers.",
+      "target_segments": [
+        "Financially Vulnerable",
+        "Emerging Potentials"
+      ],
+      "min_income": 0,
+      "min_credit_score": 0,
+      "existing_column": "has_mymo_account"
+    },
+    "Achieva Account": {
+      "description": "An everyday transactional account for customers earning a regular income, with access to digital banking and day-to-day payment services.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Stable Middles"
+      ],
+      "min_income": 8000,
+      "min_credit_score": 550,
+      "existing_column": "has_achieva_account"
+    },
+    "Prestige Banking": {
+      "description": "A premium personal banking tier offering enhanced service, benefits and relationship support for established earners.",
+      "target_segments": [
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 25000,
+      "min_credit_score": 620,
+      "existing_column": "has_prestige_banking"
+    },
+    "Private Banking": {
+      "description": "A high-value banking service combining tailored relationship management, specialist advice, wealth planning and premium benefits.",
+      "target_segments": [
+        "Premium Loyalists"
+      ],
+      "min_income": 58000,
+      "min_credit_score": 680,
+      "existing_column": "has_private_banking"
+    },
+    "Signature Banking": {
+      "description": "An upper-tier banking proposition for very high-income customers, with premium relationship service and specialised banking benefits.",
+      "target_segments": [
+        "Premium Loyalists"
+      ],
+      "min_income": 92000,
+      "min_credit_score": 680,
+      "existing_column": "has_signature_banking"
+    },
+    "Gold Credit Card": {
+      "description": "A mainstream credit card offering everyday revolving credit and card benefits, subject to affordability and credit assessment.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Stable Middles"
+      ],
+      "min_income": 5000,
+      "min_credit_score": 580,
+      "existing_column": "has_gold_credit_card"
+    },
+    "Titanium Credit Card": {
+      "description": "A higher-tier credit card for customers seeking increased credit access and additional card benefits.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Stable Middles"
+      ],
+      "min_income": 25000,
+      "min_credit_score": 600,
+      "existing_column": "has_titanium_credit_card"
+    },
+    "Platinum Credit Card": {
+      "description": "A premium credit card with enhanced benefits and services for customers meeting the relevant income and credit criteria.",
+      "target_segments": [
+        "Premium Loyalists",
+        "Stable Middles"
+      ],
+      "min_income": 58000,
+      "min_credit_score": 650,
+      "existing_column": "has_platinum_credit_card"
+    },
+    "Blue Credit Card": {
+      "description": "An entry-level credit card for everyday purchases, with a revolving credit facility subject to affordability and credit assessment.",
+      "target_segments": [
+        "Financially Vulnerable",
+        "Emerging Potentials",
+        "Stable Middles"
+      ],
+      "min_income": 5000,
+      "min_credit_score": 550,
+      "existing_column": "has_blue_credit_card"
+    },
+    "World Citizen Credit Card": {
+      "description": "A premium travel-oriented credit card designed for international payments and travel-related benefits.",
+      "target_segments": [
+        "Premium Loyalists"
+      ],
+      "min_income": 92000,
+      "min_credit_score": 650,
+      "existing_column": "has_world_citizen_credit_card"
+    },
+    "Diners Club Platinum Credit Card": {
+      "description": "A premium Diners Club card offering credit facilities and travel and lifestyle benefits, including applicable airport lounge services.",
+      "target_segments": [
+        "Premium Loyalists",
+        "Stable Middles"
+      ],
+      "min_income": 41000,
+      "min_credit_score": 620,
+      "existing_column": "has_diners_club_platinum_credit_card"
+    },
+    "Term Loan": {
+      "description": "A fixed-term personal loan repaid through scheduled instalments over an agreed period.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Financially Vulnerable"
+      ],
+      "min_income": 3000,
+      "min_credit_score": 500,
+      "existing_column": "has_term_loan"
+    },
+    "Revolving Loan": {
+      "description": "A reusable credit facility that allows an approved customer to draw, repay and draw again up to an agreed limit.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 8000,
+      "min_credit_score": 580,
+      "existing_column": "has_revolving_loan"
+    },
+    "Overdraft": {
+      "description": "A linked transactional-account credit facility that supports short-term cash-flow needs beyond the available balance.",
+      "target_segments": [
+        "Emerging Potentials",
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 8000,
+      "min_credit_score": 580,
+      "existing_column": "has_overdraft"
+    },
+    "Investment Backed Lending": {
+      "description": "A lending facility secured by qualifying investments or assets, providing liquidity without selling the underlying investment.",
+      "target_segments": [
+        "Premium Loyalists"
+      ],
+      "min_income": 50000,
+      "min_credit_score": 650,
+      "existing_column": "has_investment_backed_lending"
+    },
+    "Vehicle and Asset Finance": {
+      "description": "Finance used to purchase a vehicle or qualifying asset, normally repaid in instalments over an agreed term.",
+      "target_segments": [
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 8000,
+      "min_credit_score": 600,
+      "existing_column": "has_vehicle_finance"
+    },
+    "Home Loan": {
+      "description": "A mortgage facility used to buy, build or refinance residential property over an agreed repayment term.",
+      "target_segments": [
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 20000,
+      "min_credit_score": 630,
+      "existing_column": "has_home_loan"
+    },
+    "Student Loan": {
+      "description": "Education finance intended to cover qualifying study-related costs such as tuition and other approved expenses.",
+      "target_segments": [
+        "Emerging Potentials"
+      ],
+      "min_income": 0,
+      "min_credit_score": 0,
+      "existing_column": "has_student_loan"
+    },
+    "Savings Account": {
+      "description": "An interest-bearing deposit account for building or holding savings while retaining access to funds under the account rules.",
+      "target_segments": [
+        "Financially Vulnerable",
+        "Emerging Potentials",
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 0,
+      "min_credit_score": 0,
+      "existing_column": "has_savings_account"
+    },
+    "Fixed Deposit": {
+      "description": "A savings or investment account in which money is placed for a fixed term at an agreed interest rate.",
+      "target_segments": [
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 10000,
+      "min_credit_score": 0,
+      "existing_column": "has_fixed_deposit"
+    },
+    "Tax-Free Savings Account": {
+      "description": "A long-term savings or investment account designed to provide tax-free returns within South African contribution limits.",
+      "target_segments": [
+        "Stable Middles",
+        "Premium Loyalists"
+      ],
+      "min_income": 10000,
+      "min_credit_score": 0,
+      "existing_column": "has_tax_free_savings"
+    }
+  },
+  "ownership_rates": {
+    "Stable Middles": {
+      "MyMo Account": 0.7264,
+      "Achieva Account": 0.2736,
+      "Prestige Banking": 0.0,
+      "Private Banking": 0.0,
+      "Signature Banking": 0.0,
+      "Gold Credit Card": 0.0,
+      "Titanium Credit Card": 0.0,
+      "Platinum Credit Card": 0.0,
+      "Blue Credit Card": 0.195,
+      "World Citizen Credit Card": 0.0,
+      "Diners Club Platinum Credit Card": 0.0,
+      "Term Loan": 0.1132,
+      "Revolving Loan": 0.0,
+      "Overdraft": 0.0,
+      "Investment Backed Lending": 0.0,
+      "Vehicle and Asset Finance": 0.1116,
+      "Home Loan": 0.0566,
+      "Student Loan": 0.011,
+      "Savings Account": 0.827,
+      "Fixed Deposit": 0.0016,
+      "Tax-Free Savings Account": 0.0063
+    },
+    "Premium Loyalists": {
+      "MyMo Account": 0.1255,
+      "Achieva Account": 0.2694,
+      "Prestige Banking": 0.4207,
+      "Private Banking": 0.1587,
+      "Signature Banking": 0.0258,
+      "Gold Credit Card": 0.2878,
+      "Titanium Credit Card": 0.3284,
+      "Platinum Credit Card": 0.0554,
+      "Blue Credit Card": 0.1993,
+      "World Citizen Credit Card": 0.048,
+      "Diners Club Platinum Credit Card": 0.0369,
+      "Term Loan": 0.3137,
+      "Revolving Loan": 0.155,
+      "Overdraft": 0.1697,
+      "Investment Backed Lending": 0.1144,
+      "Vehicle and Asset Finance": 0.6937,
+      "Home Loan": 0.8672,
+      "Student Loan": 0.0,
+      "Savings Account": 1.0,
+      "Fixed Deposit": 0.203,
+      "Tax-Free Savings Account": 0.1587
+    },
+    "Financially Vulnerable": {
+      "MyMo Account": 0.2258,
+      "Achieva Account": 0.5455,
+      "Prestige Banking": 0.2287,
+      "Private Banking": 0.0,
+      "Signature Banking": 0.0,
+      "Gold Credit Card": 0.0029,
+      "Titanium Credit Card": 0.0,
+      "Platinum Credit Card": 0.0,
+      "Blue Credit Card": 0.8138,
+      "World Citizen Credit Card": 0.0,
+      "Diners Club Platinum Credit Card": 0.0,
+      "Term Loan": 0.2727,
+      "Revolving Loan": 0.0029,
+      "Overdraft": 0.0,
+      "Investment Backed Lending": 0.0,
+      "Vehicle and Asset Finance": 0.5792,
+      "Home Loan": 0.5059,
+      "Student Loan": 0.0,
+      "Savings Account": 0.9853,
+      "Fixed Deposit": 0.0557,
+      "Tax-Free Savings Account": 0.0455
+    },
+    "Emerging Potentials": {
+      "MyMo Account": 0.9221,
+      "Achieva Account": 0.0779,
+      "Prestige Banking": 0.0,
+      "Private Banking": 0.0,
+      "Signature Banking": 0.0,
+      "Gold Credit Card": 0.0,
+      "Titanium Credit Card": 0.0,
+      "Platinum Credit Card": 0.0,
+      "Blue Credit Card": 0.1946,
+      "World Citizen Credit Card": 0.0,
+      "Diners Club Platinum Credit Card": 0.0,
+      "Term Loan": 0.1046,
+      "Revolving Loan": 0.0,
+      "Overdraft": 0.0,
+      "Investment Backed Lending": 0.0,
+      "Vehicle and Asset Finance": 0.056,
+      "Home Loan": 0.0146,
+      "Student Loan": 0.0219,
+      "Savings Account": 0.7324,
+      "Fixed Deposit": 0.0,
+      "Tax-Free Savings Account": 0.0
+    }
+  }
+}

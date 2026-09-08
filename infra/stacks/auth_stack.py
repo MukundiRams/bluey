@@ -32,3 +32,11 @@ class BlueyAuthStack(Stack):
             generate_secret=False,
             auth_flows=cognito.AuthFlow(user_password=True),
         )
+
+        # Without these, there is no way to retrieve the User Pool ID / App
+        # Client ID after deployment (needed for .env and the frontend
+        # contract) other than digging through the console.
+        from aws_cdk import CfnOutput
+        CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id)
+        CfnOutput(self, "AppClientId", value=self.spa_client.user_pool_client_id)
+        CfnOutput(self, "BankersGroupName", value=self.bankers_group.group_name or "Bankers")

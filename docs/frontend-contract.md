@@ -30,6 +30,16 @@ The frontend must retain the returned `session_id` and send it with subsequent m
 
 `POST <account-opening-function-url>` uses the same `{prompt, session_id}` pattern. File uploads happen separately through the document API, not through the AgentCore harness request body.
 
+## Credit guidance
+
+`POST <credit-function-url>` uses the same `{prompt, session_id}` pattern and requires
+the Cognito access token in the `Authorization: Bearer <token>` header. The endpoint
+routes only to the credit Harness and preserves the conversation in `bluey-sessions`.
+Credit responses are guidance only; final lending decisions remain outside the Harness.
+When a customer asks for personalised product guidance, the credit Harness may use
+the recommendation engine with a verified `customer_id`; the response includes a
+segment and product suggestions marked guidance-only.
+
 ## Banker API
 
 The HTTP API exposes `/banker` for review list/detail/approve/reject operations and `/documents` for document operations. Cognito JWT authentication is required.

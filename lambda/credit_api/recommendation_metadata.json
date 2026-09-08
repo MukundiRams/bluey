@@ -1,0 +1,27 @@
+{
+  "clusters": {
+    "0": {"name": "Stable Middles", "monthly_income": 7297.846, "credit_score": 594.58, "savings_rate": 0.377, "active_products_count": 1.448},
+    "1": {"name": "Premium Loyalists", "monthly_income": 58459.041, "credit_score": 669.642, "savings_rate": 0.402, "active_products_count": 4.716},
+    "2": {"name": "Financially Vulnerable", "monthly_income": 23349.377, "credit_score": 605.934, "savings_rate": 0.38, "active_products_count": 3.569},
+    "3": {"name": "Emerging Potentials", "monthly_income": 4030.733, "credit_score": 491.891, "savings_rate": 0.046, "active_products_count": 1.214}
+  },
+  "products": {
+    "MyMo Account": {"description": "A low-cost everyday account for routine banking and money transfers.", "segments": ["Financially Vulnerable", "Emerging Potentials"], "min_income": 0, "min_credit_score": 0, "column": "has_mymo_account"},
+    "Achieva Account": {"description": "An everyday transactional account for customers earning a regular income.", "segments": ["Emerging Potentials", "Stable Middles"], "min_income": 8000, "min_credit_score": 550, "column": "has_achieva_account"},
+    "Prestige Banking": {"description": "A premium personal banking tier with enhanced service and relationship support.", "segments": ["Stable Middles", "Premium Loyalists"], "min_income": 25000, "min_credit_score": 620, "column": "has_prestige_banking"},
+    "Private Banking": {"description": "A high-value service with tailored relationship management and wealth planning.", "segments": ["Premium Loyalists"], "min_income": 58000, "min_credit_score": 680, "column": "has_private_banking"},
+    "Gold Credit Card": {"description": "A mainstream credit card subject to affordability and credit assessment.", "segments": ["Emerging Potentials", "Stable Middles"], "min_income": 5000, "min_credit_score": 580, "column": "has_gold_credit_card"},
+    "Titanium Credit Card": {"description": "A higher-tier credit card with increased access and benefits.", "segments": ["Emerging Potentials", "Stable Middles"], "min_income": 25000, "min_credit_score": 600, "column": "has_titanium_credit_card"},
+    "Platinum Credit Card": {"description": "A premium credit card with enhanced benefits and services.", "segments": ["Premium Loyalists", "Stable Middles"], "min_income": 58000, "min_credit_score": 650, "column": "has_platinum_credit_card"},
+    "Blue Credit Card": {"description": "An entry-level credit card for everyday purchases.", "segments": ["Financially Vulnerable", "Emerging Potentials", "Stable Middles"], "min_income": 5000, "min_credit_score": 550, "column": "has_blue_credit_card"},
+    "Term Loan": {"description": "A fixed-term loan repaid through scheduled instalments.", "segments": ["Emerging Potentials", "Financially Vulnerable"], "min_income": 3000, "min_credit_score": 500, "column": "has_term_loan"},
+    "Revolving Loan": {"description": "A reusable credit facility allowing drawdown and repayment up to an agreed limit.", "segments": ["Emerging Potentials", "Stable Middles", "Premium Loyalists"], "min_income": 8000, "min_credit_score": 580, "column": "has_revolving_loan"},
+    "Overdraft": {"description": "A linked account facility for short-term cash-flow needs.", "segments": ["Emerging Potentials", "Stable Middles", "Premium Loyalists"], "min_income": 8000, "min_credit_score": 580, "column": "has_overdraft"},
+    "Vehicle and Asset Finance": {"description": "Finance for a vehicle or qualifying asset, subject to assessment.", "segments": ["Stable Middles", "Premium Loyalists"], "min_income": 8000, "min_credit_score": 600, "column": "has_vehicle_finance"},
+    "Home Loan": {"description": "A mortgage facility for buying, building or refinancing property.", "segments": ["Stable Middles", "Premium Loyalists"], "min_income": 20000, "min_credit_score": 630, "column": "has_home_loan"},
+    "Student Loan": {"description": "Education finance for qualifying study-related costs.", "segments": ["Emerging Potentials"], "min_income": 0, "min_credit_score": 0, "column": "has_student_loan"},
+    "Savings Account": {"description": "An interest-bearing account for building or holding savings.", "segments": ["Financially Vulnerable", "Emerging Potentials", "Stable Middles", "Premium Loyalists"], "min_income": 0, "min_credit_score": 0, "column": "has_savings_account"},
+    "Fixed Deposit": {"description": "A deposit placed for a fixed term at an agreed interest rate.", "segments": ["Stable Middles", "Premium Loyalists"], "min_income": 10000, "min_credit_score": 0, "column": "has_fixed_deposit"},
+    "Tax-Free Savings Account": {"description": "A long-term savings account with tax-free returns within statutory limits.", "segments": ["Stable Middles", "Premium Loyalists"], "min_income": 10000, "min_credit_score": 0, "column": "has_tax_free_savings"}
+  }
+}

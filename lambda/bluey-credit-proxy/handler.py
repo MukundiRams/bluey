@@ -1,0 +1,87 @@
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+
+import boto3
+
+REGION = os.environ.get("AWS_REGION_NAME", os.environ.get("AWS_REGION", "us-east-1"))
+HARNESS_ARN = os.environ.get("HARNESS_ARN", "")
+HARNESS_PARAMETER_NAME = os.environ.get("HARNESS_PARAMETER_NAME", "")
+ssm = boto3.client("ssm", region_name=REGION)
+SESSIONS_TABLE_NAME = os.environ.get("SESSIONS_TABLE", "bluey-sessions")
+agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION)
+dynamodb = boto3.resource("dynamodb", region_name=REGION)
+sessions_table = dynamodb.Table(SESSIONS_TABLE_NAME)
+cognito_client = boto3.client("cognito-idp", region_name=REGION)
+
+
+def verify_token(event):
+    headers = event.get("headers", {}) or {}
+    auth_header = headers.get("authorization", "") or headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    try:
+        response = cognito_client.get_user(AccessToken=auth_header[len("Bearer "):])
+        attrs = {item["Name"]: item["Value"] for item in response["UserAttributes"]}
+        return attrs.get("sub")
+    except cognito_client.exceptions.NotAuthorizedException:
+        return None
+
+
+def lambda_handler(event, context):
+    user_id = verify_token(event)
+    if not user_id:
+        return response(401, {"error": "unauthorized"})
+
+    harness_arn = HARNESS_ARN
+    if not harness_arn and HARNESS_PARAMETER_NAME:
+        harness_arn = ssm.get_parameter(Name=HARNESS_PARAMETER_NAME)["Parameter"]["Value"]
+    if not harness_arn:
+        return response(500, {"error": "Credit Harness ARN is not configured"})
+
+    body = json.loads(event.get("body") or "{}")
+    prompt = body.get("prompt", "")
+    session_id = body.get("session_id") or str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    existing = sessions_table.get_item(Key={"sessionId": session_id}).get("Item", {})
+    messages = existing.get("messages", [])
+    messages.append({"role": "user", "text": prompt, "timestamp": now})
+
+    agent_response = agentcore_client.invoke_harness(
+        harnessArn=harness_arn,
+        runtimeSessionId=session_id,
+        messages=[{"role": "user", "content": [{"text": f"{prompt}\n\n[session_id: {session_id}]"}]}],
+    )
+    full_text = ""
+    for chunk in agent_response.get("stream", []):
+        delta = chunk.get("contentBlockDelta", {}).get("delta", {})
+        full_text += delta.get("text", "")
+
+    messages.append({
+        "role": "assistant",
+        "text": full_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    sessions_table.update_item(
+        Key={"sessionId": session_id},
+        UpdateExpression=(
+            "SET messages = :m, updatedAt = :u, userId = if_not_exists(userId, :uid), "
+            "createdAt = if_not_exists(createdAt, :c)"
+        ),
+        ExpressionAttributeValues={
+            ":m": messages,
+            ":u": now,
+            ":uid": user_id,
+            ":c": existing.get("createdAt") or now,
+        },
+    )
+    return response(200, {"reply": full_text, "session_id": session_id})
+
+
+def response(status, body):
+    return {
+        "statusCode": status,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(body, default=str),
+    }

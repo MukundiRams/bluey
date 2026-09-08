@@ -1,6 +1,6 @@
 """Non-destructive API smoke-test helper.
 
-Set CHAT_URL / ACCOUNT_OPENING_URL / BANKER_API_URL / DOCUMENT_API_URL in the environment.
+Set CHAT_URL / CREDIT_URL / ACCOUNT_OPENING_URL / BANKER_API_URL / DOCUMENT_API_URL in the environment.
 Tokens are supplied from the frontend/authentication flow and are never stored in the repo.
 """
 import os
@@ -18,7 +18,10 @@ def post(url, payload, token=None):
 
 if __name__ == "__main__":
     url = os.environ.get("CHAT_URL")
+    credit_url = os.environ.get("CREDIT_URL")
     token = os.environ.get("COGNITO_ACCESS_TOKEN")
     if not url or not token:
         raise SystemExit("Set CHAT_URL and COGNITO_ACCESS_TOKEN")
     post(url, {"prompt": "Hello"}, token)
+    if credit_url:
+        post(credit_url, {"prompt": "What credit products can you explain?"}, token)

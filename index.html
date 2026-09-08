@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standard Bank | Banker Review</title>
+  <style>
+    :root { --ink:#102a43; --muted:#627d98; --line:#d9e2ec; --paper:#fff; --wash:#f4f7f9; --teal:#007d8a; --green:#19704a; --red:#b83a3a; --shadow:0 16px 40px rgba(16,42,67,.09); }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 90% 0,#dceff0 0,transparent 34%),var(--wash); font:15px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    header { background:#092f4f; color:white; padding:28px max(24px,calc((100vw - 1180px)/2)); display:flex; justify-content:space-between; gap:20px; align-items:end; }
+    header h1 { margin:0; font-size:clamp(25px,4vw,38px); letter-spacing:-.03em; } header p { margin:5px 0 0; color:#b8d6dc; }
+    .shell { max-width:1180px; margin:26px auto; padding:0 20px 48px; }
+    .setup,.toolbar,.panel { background:var(--paper); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
+    .setup { padding:18px; display:grid; grid-template-columns:1fr 1.5fr auto; gap:12px; align-items:end; margin-bottom:22px; }
+    label { display:grid; gap:6px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    input { width:100%; border:1px solid #bcccdc; border-radius:7px; padding:11px 12px; color:var(--ink); background:white; font:inherit; }
+    button { border:0; border-radius:7px; padding:11px 15px; color:white; background:var(--teal); cursor:pointer; font:700 14px inherit; }
+    button:hover { filter:brightness(.94); } button:disabled { opacity:.5; cursor:wait; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; margin-bottom:14px; }
+    .status { color:var(--muted); } .status.error { color:var(--red); }
+    .grid { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(0,1.5fr); gap:18px; align-items:start; }
+    .list { display:grid; gap:10px; }
+    .review { background:white; border:1px solid var(--line); border-left:4px solid var(--teal); border-radius:9px; padding:14px; text-align:left; cursor:pointer; box-shadow:0 5px 16px rgba(16,42,67,.05); }
+    .review.selected { border-color:var(--teal); background:#f0fbfb; } .review strong { display:block; font-size:16px; } .review small { display:block; color:var(--muted); }
+    .panel { padding:22px; min-height:400px; } .panel h2 { margin:0 0 4px; } .subtle { color:var(--muted); margin-top:0; }
+    .section { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; } .section h3 { margin:0 0 10px; font-size:14px; }
+    .messages { display:grid; gap:8px; max-height:310px; overflow:auto; } .message { padding:9px 12px; border-radius:8px; background:#eef2f5; white-space:pre-wrap; } .message.user { background:#e2f2f2; }
+    .docs { display:grid; gap:8px; } .doc { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:9px 0; border-bottom:1px solid #edf1f4; }
+    .doc a { color:var(--teal); font-weight:700; } .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; } .approve { background:var(--green); } .reject { background:var(--red); } .ghost { background:#829ab1; }
+    .empty { color:var(--muted); text-align:center; padding:36px 12px; border:1px dashed #bcccdc; border-radius:9px; }
+    @media (max-width:760px) { header { display:block; } .setup,.grid { grid-template-columns:1fr; } .toolbar { align-items:stretch; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>Banker Review</h1><p>Standard Bank account-opening queue</p></div><div id="identity">Not connected</div></header>
+  <main class="shell">
+    <section class="setup">
+      <label>Banker API URL<input id="apiUrl" placeholder="https://...execute-api.../banker"></label>
+      <label>Cognito ID token<input id="token" type="password" placeholder="Paste a Cognito ID token"></label>
+      <button id="connect">Connect</button>
+    </section>
+    <section class="toolbar"><strong id="count">No reviews loaded</strong><span id="status" class="status">Enter the deployed API URL and banker ID token.</span><button id="refresh" class="ghost">Refresh</button></section>
+    <div class="grid"><section id="list" class="list"><div class="empty">Connect to see pending reviews.</div></section><section id="detail" class="panel"><div class="empty">Select a review to inspect its conversation and documents.</div></section></div>
+  </main>
+  <script>
+    const apiInput = document.querySelector('#apiUrl'); const tokenInput = document.querySelector('#token'); const statusEl = document.querySelector('#status'); const listEl = document.querySelector('#list'); const detailEl = document.querySelector('#detail'); const countEl = document.querySelector('#count');
+    let selectedSession = null;
+    apiInput.value = localStorage.getItem('bluey.bankerApiUrl') || ''; tokenInput.value = localStorage.getItem('bluey.bankerToken') || '';
+    function setStatus(text, error = false) { statusEl.textContent = text; statusEl.className = `status${error ? ' error' : ''}`; }
+    function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function config() { const api = apiInput.value.trim().replace(/\/$/, ''); const token = tokenInput.value.trim(); if (!api || !token) throw new Error('Enter both the Banker API URL and Cognito ID token.'); localStorage.setItem('bluey.bankerApiUrl', api); localStorage.setItem('bluey.bankerToken', token); return { api, token }; }
+    async function request(path = '', options = {}) { const { api, token } = config(); const response = await fetch(`${api}${path}`, { ...options, headers: { Authorization:`Bearer ${token}`, 'Content-Type':'application/json', ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`); return data; }
+    async function loadList() { try { setStatus('Loading reviews...'); const data = await request('?action=list'); const sessions = data.sessions || []; countEl.textContent = `${sessions.length} pending review${sessions.length === 1 ? '' : 's'}`; listEl.innerHTML = sessions.length ? sessions.map(s => `<button class="review ${s.sessionId === selectedSession ? 'selected' : ''}" data-session="${escapeHtml(s.sessionId)}"><strong>${escapeHtml(s.fullName || 'New applicant')}</strong><small>${escapeHtml(s.customerId || 'New applicant')} · ${escapeHtml(s.sessionId)}</small><small>${escapeHtml(s.updatedAt || '')}</small></button>`).join('') : '<div class="empty">No sessions pending review.</div>'; listEl.querySelectorAll('[data-session]').forEach(button => button.addEventListener('click', () => loadDetail(button.dataset.session))); setStatus('Connected'); } catch (error) { countEl.textContent = 'Reviews unavailable'; setStatus(error.message, true); } }
+    async function loadDetail(sessionId) { try { selectedSession = sessionId; const data = await request(`?action=detail&sessionId=${encodeURIComponent(sessionId)}`); const session = data.session || {}; const customer = data.customer || {}; const docs = data.documents || []; detailEl.innerHTML = `<h2>${escapeHtml(customer.fullName || 'New applicant')}</h2><p class="subtle">${escapeHtml(customer.phone || 'No phone')} · ${escapeHtml(customer.email || 'No email')}</p><div class="section"><h3>Conversation</h3><div class="messages">${(session.messages || []).map(m => `<div class="message ${escapeHtml(m.role)}"><strong>${escapeHtml(m.role)}</strong><br>${escapeHtml(m.text)}</div>`).join('') || '<span class="subtle">No conversation history.</span>'}</div></div><div class="section"><h3>Documents</h3><div class="docs">${docs.map(d => `<div class="doc"><span>${escapeHtml(d.docType)} <small>(${escapeHtml(d.status)})</small></span>${d.viewUrl ? `<a href="${escapeHtml(d.viewUrl)}" target="_blank" rel="noopener">View</a>` : ''}</div>`).join('') || '<span class="subtle">No documents attached.</span>'}</div></div><div class="actions"><button class="approve" data-decision="approve">Approve</button><button class="reject" data-decision="reject">Reject</button></div>`; detailEl.querySelectorAll('[data-decision]').forEach(button => button.addEventListener('click', () => decide(button.dataset.decision))); listEl.querySelectorAll('.review').forEach(button => button.classList.toggle('selected', button.dataset.session === sessionId)); } catch (error) { setStatus(error.message, true); } }
+    async function decide(action) { if (!selectedSession || !confirm(`${action[0].toUpperCase() + action.slice(1)} this application?`)) return; try { await request('', { method:'POST', body:JSON.stringify({ action, sessionId:selectedSession }) }); setStatus(`Application ${action}d.`); selectedSession = null; detailEl.innerHTML = '<div class="empty">Select a review to inspect its conversation and documents.</div>'; await loadList(); } catch (error) { setStatus(error.message, true); } }
+    document.querySelector('#connect').addEventListener('click', loadList); document.querySelector('#refresh').addEventListener('click', loadList);
+  </script>
+</body>
+</html>
