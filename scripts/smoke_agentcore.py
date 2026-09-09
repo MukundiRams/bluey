@@ -13,6 +13,7 @@ def harness_arn(region, stage, harness):
         "main": "MainHarnessArnOutput",
         "credit": "CreditHarnessArnOutput",
         "account-opening": "AccountOpeningHarnessArnOutput",
+        "financial-advice": "FinancialAdviceHarnessArnOutput",
     }[harness]
     for output in stack.get("Outputs", []):
         if output["OutputKey"] == output_name:
@@ -22,7 +23,7 @@ def harness_arn(region, stage, harness):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--stage',default='dev')
-    p.add_argument('--harness',choices=['main','credit','account-opening'],default='main')
+    p.add_argument('--harness',choices=['main','credit','account-opening','financial-advice'],default='main')
     p.add_argument('--prompt',default='Hello. Please tell me briefly what you can help me with.')
     p.add_argument('--region',default='us-east-1')
     a=p.parse_args()

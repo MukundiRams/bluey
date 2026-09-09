@@ -102,6 +102,7 @@ class BlueyPlatformStack(Stack):
         chat_role = execution_role("bluey-chat-proxy-role")
         account_opening_role = execution_role("bluey-account-opening-proxy-role")
         credit_proxy_role = execution_role("bluey-credit-proxy-role")
+        financial_advice_role = execution_role("bluey-financial-advice-proxy-role")
 
         # Banker API: sessions/customers/documents + private document reads.
         data_stack.tables["sessions"].grant_read_write_data(banker_role)
@@ -129,9 +130,11 @@ class BlueyPlatformStack(Stack):
         data_stack.tables["sessions"].grant_read_write_data(chat_role)
         data_stack.tables["sessions"].grant_read_write_data(account_opening_role)
         data_stack.tables["sessions"].grant_read_write_data(credit_proxy_role)
+        data_stack.tables["sessions"].grant_read_write_data(financial_advice_role)
         chat_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         account_opening_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         credit_proxy_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
+        financial_advice_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         self.dynamodb_tool_fn = fn("bluey-dynamodb-tool", tool_role, timeout=30, code_path="lambda/dynamodb_tool")
         self.sessions_fn = fn("bluey-sessions", tool_role, timeout=3, code_path="lambda/dynamodb_tool")
         self.credit_fn = fn("bluey-credit-api", execution_role("bluey-credit-api-role"), timeout=3, code_path="lambda/credit_api")
@@ -142,6 +145,7 @@ class BlueyPlatformStack(Stack):
         self.chat_fn = fn("bluey-chat-proxy", chat_role, timeout=90)
         self.account_opening_fn = fn("bluey-account-opening-proxy", account_opening_role, timeout=90)
         self.credit_proxy_fn = fn("bluey-credit-proxy", credit_proxy_role, timeout=90, code_path="lambda/bluey-credit-proxy")
+        self.financial_advice_fn = fn("bluey-financial-advice-proxy", financial_advice_role, timeout=90)
         self.banker_fn = fn("bluey-banker-api", banker_role, timeout=30)
         self.document_fn = fn("bluey-document-api", document_role, timeout=30)
 
@@ -162,6 +166,10 @@ class BlueyPlatformStack(Stack):
             cors=function_url_cors,
         )
         self.credit_function_url = self.credit_proxy_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            cors=function_url_cors,
+        )
+        self.financial_advice_function_url = self.financial_advice_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
             cors=function_url_cors,
         )
@@ -219,6 +227,10 @@ class BlueyPlatformStack(Stack):
         account_opening_schema = [
             tool for tool in sessions_schema
             if tool["name"] in {"check_documents_status", "save_applicant_info"}
+        ]
+        financial_advice_schema = [
+            tool for tool in sessions_schema
+            if tool["name"] in {"lookup_customer", "get_accounts", "get_transactions", "get_transaction_chart"}
         ]
         credit_schema = [
             {"name": "get_loan_products", "description": "Returns available Standard Bank loan products including rates and terms in ZAR", "inputSchema": {"type": "object", "properties": {}}},
@@ -278,6 +290,13 @@ class BlueyPlatformStack(Stack):
             [self.sessions_fn.function_arn],
             [knowledge_stack.account_opening_kb.attr_knowledge_base_arn],
         )
+        financial_advice_gateway, financial_advice_gateway_role = make_gateway(
+            "FinancialAdviceGateway",
+            "financial-advice",
+            "Bluey financial wellness tools and responsible advice knowledge",
+            [self.sessions_fn.function_arn],
+            [knowledge_stack.main_kb.attr_knowledge_base_arn],
+        )
 
         def lambda_target(logical_id, name, function, schema, gateway):
             target = bedrockagentcore.CfnGatewayTarget(
@@ -303,6 +322,12 @@ class BlueyPlatformStack(Stack):
             action="lambda:InvokeFunction",
             source_arn=account_opening_gateway.attr_gateway_arn,
         )
+        self.sessions_fn.add_permission(
+            "AllowFinancialAdviceGateway",
+            principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            action="lambda:InvokeFunction",
+            source_arn=financial_advice_gateway.attr_gateway_arn,
+        )
         self.credit_fn.add_permission(
             "AllowCreditGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
@@ -313,6 +338,7 @@ class BlueyPlatformStack(Stack):
         lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway)
         lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway)
         lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway)
+        lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway)
 
         def kb_target(logical_id, name, kb_id, gateway, retrieval=False):
             params = {"knowledgeBaseId": kb_id}
@@ -337,11 +363,19 @@ class BlueyPlatformStack(Stack):
             knowledge_stack.account_opening_kb.attr_knowledge_base_id,
             account_opening_gateway,
         )
+        kb_target(
+            "FinancialAdviceKnowledgeTarget",
+            "bluey-kb-financial-advice",
+            knowledge_stack.main_kb.attr_knowledge_base_id,
+            financial_advice_gateway,
+            retrieval=True,
+        )
 
         prompts = {
             "main": (Path(__file__).parents[2] / "config/prompts/main.txt").read_text(encoding="utf-8"),
             "credit": (Path(__file__).parents[2] / "config/prompts/credit.txt").read_text(encoding="utf-8"),
             "account-opening": (Path(__file__).parents[2] / "config/prompts/account-opening.txt").read_text(encoding="utf-8"),
+            "financial-advice": (Path(__file__).parents[2] / "config/prompts/financial-advice.txt").read_text(encoding="utf-8"),
         }
 
         def harness_role(logical_id, name, gateway):
@@ -360,6 +394,9 @@ class BlueyPlatformStack(Stack):
         credit_harness_role = harness_role("CreditHarnessRole", "credit", credit_gateway)
         account_opening_harness_role = harness_role(
             "AccountOpeningHarnessRole", "account-opening", account_opening_gateway
+        )
+        financial_advice_harness_role = harness_role(
+            "FinancialAdviceHarnessRole", "financial-advice", financial_advice_gateway
         )
 
         def runtime(logical_id, name, role):
@@ -384,6 +421,9 @@ class BlueyPlatformStack(Stack):
             "credit": runtime("CreditRuntime", f"bluey_credit_{stage}", credit_harness_role),
             "account-opening": runtime(
                 "AccountOpeningRuntime", f"bluey_account_opening_{stage}", account_opening_harness_role
+            ),
+            "financial-advice": runtime(
+                "FinancialAdviceRuntime", f"bluey_financial_advice_{stage}", financial_advice_harness_role
             ),
         }
 
@@ -420,6 +460,11 @@ class BlueyPlatformStack(Stack):
             runtimes["account-opening"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
             account_opening_harness_role, account_opening_gateway,
         )
+        financial_advice_harness = harness(
+            "FinancialAdviceHarness", f"bluey_financial_advice_{stage}", prompts["financial-advice"],
+            runtimes["financial-advice"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            financial_advice_harness_role, financial_advice_gateway,
+        )
 
         # Harness invocation checks a runtime-endpoint subresource, so the
         # generated harness ARN must include a trailing wildcard.
@@ -435,21 +480,28 @@ class BlueyPlatformStack(Stack):
             actions=["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeHarness"],
             resources=[f"{credit_harness.attr_arn}*"],
         ))
+        financial_advice_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeHarness"],
+            resources=[f"{financial_advice_harness.attr_arn}*"],
+        ))
 
         # Now that Harnesses exist, wire their ARNs directly into the proxy
         # Lambdas — same-stack reference, no SSM indirection needed.
         self.chat_fn.add_environment("HARNESS_ARN", main_harness.attr_arn)
         self.account_opening_fn.add_environment("HARNESS_ARN", account_harness.attr_arn)
         self.credit_proxy_fn.add_environment("HARNESS_ARN", credit_harness.attr_arn)
+        self.financial_advice_fn.add_environment("HARNESS_ARN", financial_advice_harness.attr_arn)
 
         self.gateways = {
             "main": main_gateway,
             "credit": credit_gateway,
             "account-opening": account_opening_gateway,
+            "financial-advice": financial_advice_gateway,
         }
         self.main_harness = main_harness
         self.credit_harness = credit_harness
         self.account_harness = account_harness
+        self.financial_advice_harness = financial_advice_harness
 
         CfnOutput(self, "HttpApiUrl", value=api.api_endpoint)
         CfnOutput(self, "BankerApiUrl", value=f"{api.api_endpoint}/banker")
@@ -457,12 +509,15 @@ class BlueyPlatformStack(Stack):
         CfnOutput(self, "ChatFunctionUrl", value=self.chat_function_url.url)
         CfnOutput(self, "AccountOpeningFunctionUrl", value=self.account_opening_function_url.url)
         CfnOutput(self, "CreditFunctionUrl", value=self.credit_function_url.url)
+        CfnOutput(self, "FinancialAdviceFunctionUrl", value=self.financial_advice_function_url.url)
         CfnOutput(self, "MainGatewayArnOutput", value=main_gateway.attr_gateway_arn)
         CfnOutput(self, "CreditGatewayArnOutput", value=credit_gateway.attr_gateway_arn)
         CfnOutput(self, "AccountOpeningGatewayArnOutput", value=account_opening_gateway.attr_gateway_arn)
+        CfnOutput(self, "FinancialAdviceGatewayArnOutput", value=financial_advice_gateway.attr_gateway_arn)
         # Backward-compatible alias for scripts or consumers that expected one
         # Gateway output before the per-Harness split.
         CfnOutput(self, "GatewayArnOutput", value=main_gateway.attr_gateway_arn)
         CfnOutput(self, "MainHarnessArnOutput", value=main_harness.attr_arn)
         CfnOutput(self, "CreditHarnessArnOutput", value=credit_harness.attr_arn)
         CfnOutput(self, "AccountOpeningHarnessArnOutput", value=account_harness.attr_arn)
+        CfnOutput(self, "FinancialAdviceHarnessArnOutput", value=financial_advice_harness.attr_arn)
