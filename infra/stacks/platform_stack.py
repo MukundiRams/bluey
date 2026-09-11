@@ -20,75 +20,44 @@ from stacks.platform_stack_original import BlueyPlatformStack as _BlueyPlatformS
 class BlueyPlatformStack(_BlueyPlatformStack):
     """Original platform stack with a typed Lambda-based KB retrieval path."""
 
-    _KB_TARGETS = {
-        "StandardBankKnowledgeTarget": ("MainGateway", "MainGatewayRole"),
-        "CreditKnowledgeTarget": ("CreditGateway", "CreditGatewayRole"),
-        "AccountOpeningKnowledgeTarget": (
-            "AccountOpeningGateway",
-            "AccountOpeningGatewayRole",
-        ),
-        "FinancialAdviceKnowledgeTarget": (
-            "FinancialAdviceGateway",
-            "FinancialAdviceGatewayRole",
-        ),
-    }
-
     def __init__(self, *args, **kwargs):
+        self._stage = kwargs.get("stage", "dev")
         super().__init__(*args, **kwargs)
         self._replace_managed_kb_targets()
 
     def _replace_managed_kb_targets(self) -> None:
         """Replace connector targets with directly typed Bedrock Retrieve calls."""
-        knowledge_stack = kwargs_knowledge_stack = self.node.find_child("..") if False else None
-        # The original stack receives the knowledge stack as a constructor
-        # keyword. It is available through the construct context only via the
-        # target resources, so resolve each KB ARN from the existing target's
-        # CloudFormation properties and keep the actual KB IDs in Lambda env.
-        # Instead, use the knowledge stack reference retained on the original
-        # stack by resolving the known construct paths from its scope.
-        app = self.node.scope
-        _ = knowledge_stack, kwargs_knowledge_stack, app
-
-        # The original CfnGatewayTarget resources are still the authoritative
-        # target identities. We mutate their target configuration in place so
-        # CloudFormation updates the existing targets rather than creating
-        # duplicate Gateway targets.
         kb_specs = {
             "StandardBankKnowledgeTarget": (
                 "BlueyMainKnowledgeRetrieval",
                 "MainGateway",
                 "MainGatewayRole",
                 "bluey-kb-standard-bank-retrieval",
-                "bluey-knowledge-retrieval-main",
             ),
             "CreditKnowledgeTarget": (
                 "BlueyCreditKnowledgeRetrieval",
                 "CreditGateway",
                 "CreditGatewayRole",
                 "bluey-kb-credit-retrieval",
-                "bluey-knowledge-retrieval-credit",
             ),
             "AccountOpeningKnowledgeTarget": (
                 "BlueyAccountOpeningKnowledgeRetrieval",
                 "AccountOpeningGateway",
                 "AccountOpeningGatewayRole",
                 "bluey-kb-account-opening-retrieval",
-                "bluey-knowledge-retrieval-account-opening",
             ),
             "FinancialAdviceKnowledgeTarget": (
                 "BlueyFinancialAdviceKnowledgeRetrieval",
                 "FinancialAdviceGateway",
                 "FinancialAdviceGatewayRole",
                 "bluey-kb-financial-advice-retrieval",
-                "bluey-knowledge-retrieval-financial-advice",
             ),
         }
 
-        # Retrieve the KB IDs from the existing KnowledgeStack construct.
-        # It is a sibling of this stack, so locate it through the root App.
-        root = self.node.root
+        # Retrieve the KB IDs from the existing KnowledgeStack construct. It is
+        # a sibling of this stack, so locate it through the root App.
         knowledge_stack = None
-        for construct in root.node.find_all():
+        for construct in self.node.root.node.find_all():
             if construct.node.id.startswith("BlueyKnowledge-"):
                 knowledge_stack = construct
                 break
@@ -108,10 +77,11 @@ class BlueyPlatformStack(_BlueyPlatformStack):
             "FinancialAdviceKnowledgeTarget": knowledge_stack.main_kb.attr_knowledge_base_arn,
         }
 
-        for target_id, (function_id, gateway_id, gateway_role_id, target_name, function_name) in kb_specs.items():
+        for target_id, (function_id, gateway_id, gateway_role_id, target_name) in kb_specs.items():
             target = self.node.find_child(target_id)
             gateway = self.node.find_child(gateway_id)
             gateway_role = self.node.find_child(gateway_role_id)
+            function_name = f"{target_name}-{self._stage}"
 
             function_role = iam.Role(
                 self,
@@ -153,6 +123,7 @@ class BlueyPlatformStack(_BlueyPlatformStack):
                 function_id + "GatewayPermission",
                 principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
                 action="lambda:InvokeFunction",
+                source_account=self.account,
                 source_arn=gateway.attr_gateway_arn,
             )
 
@@ -164,6 +135,9 @@ class BlueyPlatformStack(_BlueyPlatformStack):
                 )
             )
 
+            # Keep the existing target identity and replace only its target
+            # implementation. This avoids duplicate Gateway targets during an
+            # update and removes the managed-KB connector from the call path.
             target.add_property_override(
                 "TargetConfiguration",
                 {
