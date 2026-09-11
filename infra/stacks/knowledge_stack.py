@@ -61,8 +61,14 @@ class BlueyKnowledgeStack(Stack):
                 knowledge_base_configuration={
                     "type": "MANAGED",
                     "managedKnowledgeBaseConfiguration": {
+                        # With a MANAGED knowledge base, Bedrock selects and
+                        # operates the embedding model itself. Passing an
+                        # explicit embeddingModelArn here is rejected with
+                        # "embeddingModelArn must not be specified when
+                        # embeddingModelType is MANAGED", so only the type is
+                        # set. The KnowledgeBaseRole still grants InvokeModel
+                        # on Titan v2, which remains harmless.
                         "embeddingModelType": "MANAGED",
-                        "embeddingModelArn": f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0",
                     },
                 },
             )

@@ -116,7 +116,7 @@ In the AWS console for the target account and selected region, verify:
 1. The configured Claude models are available to the account.
 2. `amazon.titan-embed-text-v2:0` is available for Knowledge Base embeddings.
 3. AgentCore Gateway, Runtime, and Harness features are available.
-4. The account has enough quotas for three runtimes and three Harnesses.
+4. The account has enough quotas for four runtimes and four Harnesses.
 5. The public ECR image referenced by `HARNESS_IMAGE` is accessible.
 
 The exact model IDs and image are in:

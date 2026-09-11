@@ -298,7 +298,20 @@ class BlueyPlatformStack(Stack):
             [knowledge_stack.main_kb.attr_knowledge_base_arn],
         )
 
-        def lambda_target(logical_id, name, function, schema, gateway):
+        def _depend_on_role_policy(target, role):
+            # AgentCore validates the gateway execution role's access to the
+            # target resource at target-creation time. The role's inline
+            # policy (its DefaultPolicy) must therefore exist and have
+            # propagated in IAM before the target is created, otherwise the
+            # target fails to stabilize with "Insufficient permissions to
+            # validate the specified resource". CfnGatewayTarget only depends
+            # on the gateway by default, not on the role policy, so add that
+            # dependency explicitly here.
+            default_policy = role.node.try_find_child("DefaultPolicy")
+            if default_policy is not None:
+                target.add_dependency(default_policy.node.default_child)
+
+        def lambda_target(logical_id, name, function, schema, gateway, role, lambda_permission=None):
             target = bedrockagentcore.CfnGatewayTarget(
                 self,
                 logical_id,
@@ -308,39 +321,45 @@ class BlueyPlatformStack(Stack):
                 target_configuration={"mcp": {"lambda": {"lambdaArn": function.function_arn, "toolSchema": {"inlinePayload": schema}}}},
             )
             target.add_dependency(gateway)
+            _depend_on_role_policy(target, role)
+            # The Lambda resource-based permission granting the gateway
+            # principal lambda:InvokeFunction must also exist before the
+            # target validates, or validation sees no invoke permission.
+            if lambda_permission is not None:
+                target.add_dependency(lambda_permission)
             return target
 
-        self.sessions_fn.add_permission(
+        main_gateway_permission = self.sessions_fn.add_permission(
             "AllowMainGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=main_gateway.attr_gateway_arn,
         )
-        self.sessions_fn.add_permission(
+        account_opening_gateway_permission = self.sessions_fn.add_permission(
             "AllowAccountOpeningGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=account_opening_gateway.attr_gateway_arn,
         )
-        self.sessions_fn.add_permission(
+        financial_advice_gateway_permission = self.sessions_fn.add_permission(
             "AllowFinancialAdviceGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=financial_advice_gateway.attr_gateway_arn,
         )
-        self.credit_fn.add_permission(
+        credit_gateway_permission = self.credit_fn.add_permission(
             "AllowCreditGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=credit_gateway.attr_gateway_arn,
         )
 
-        lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway)
-        lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway)
-        lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway)
-        lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway)
+        lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway, main_gateway_role, main_gateway_permission)
+        lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway, account_opening_gateway_role, account_opening_gateway_permission)
+        lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway, credit_gateway_role, credit_gateway_permission)
+        lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
 
-        def kb_target(logical_id, name, kb_id, gateway, retrieval=False):
+        def kb_target(logical_id, name, kb_id, gateway, role, retrieval=False):
             params = {"knowledgeBaseId": kb_id}
             if retrieval:
                 params = {"retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": 5}}, "knowledgeBaseId": kb_id}
@@ -353,21 +372,27 @@ class BlueyPlatformStack(Stack):
                 target_configuration={"mcp": {"connector": {"source": {"connectorId": "bedrock-knowledge-bases", "version": "1.0.0"}, "configurations": [{"name": "Retrieve", "parameterValues": params}]}}},
             )
             target.add_dependency(gateway)
+            # Same IAM-propagation ordering requirement as the Lambda targets:
+            # the gateway role must be able to read the Knowledge Base before
+            # AgentCore validates this target.
+            _depend_on_role_policy(target, role)
             return target
 
-        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, retrieval=True)
-        kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway)
+        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role, retrieval=True)
+        kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway, credit_gateway_role)
         kb_target(
             "AccountOpeningKnowledgeTarget",
             "bluey-kb-account-opening",
             knowledge_stack.account_opening_kb.attr_knowledge_base_id,
             account_opening_gateway,
+            account_opening_gateway_role,
         )
         kb_target(
             "FinancialAdviceKnowledgeTarget",
             "bluey-kb-financial-advice",
             knowledge_stack.main_kb.attr_knowledge_base_id,
             financial_advice_gateway,
+            financial_advice_gateway_role,
             retrieval=True,
         )
 
@@ -387,6 +412,28 @@ class BlueyPlatformStack(Stack):
             )
             role.add_to_policy(
                 _policy(["bedrock-agentcore:InvokeGateway"], [gateway.attr_gateway_arn], "InvokeAssignedGateway")
+            )
+            # Each harness is created with a managedMemoryConfiguration, so at
+            # runtime it reads and writes its own AgentCore memory. Without
+            # these actions the harness fails with AccessDeniedException on
+            # bedrock-agentcore:ListEvents (and the related event actions).
+            # The memory resource is created by the harness itself, so scope
+            # to this account's agentcore memory resources rather than a
+            # specific ARN (which would be a circular reference).
+            role.add_to_policy(
+                _policy(
+                    [
+                        "bedrock-agentcore:ListEvents",
+                        "bedrock-agentcore:GetEvent",
+                        "bedrock-agentcore:CreateEvent",
+                        "bedrock-agentcore:ListSessions",
+                        "bedrock-agentcore:RetrieveMemoryRecords",
+                        "bedrock-agentcore:GetMemoryRecord",
+                        "bedrock-agentcore:ListMemoryRecords",
+                    ],
+                    [f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:memory/*"],
+                    "AccessHarnessMemory",
+                )
             )
             return role
 
