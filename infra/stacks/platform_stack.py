@@ -3,18 +3,19 @@
 The implementation lives in ``platform_stack_original.py`` so this wrapper can
 apply a CloudFormation-level compatibility fix without duplicating the large
 platform stack. AWS documents ``numberOfResults`` as an integer, but the
-current Gateway connector path can surface the nested value as a string at
-runtime. We therefore omit the optional retrievalConfiguration entirely and
-let Managed Knowledge Bases use its documented default of five results.
+AgentCore Gateway managed-Knowledge-Base connector is currently rejecting the
+nested value as a string at runtime. We therefore omit the optional
+``retrievalConfiguration`` override and let Managed Knowledge Bases use their
+default of five results.
 """
 
 from aws_cdk import aws_bedrockagentcore as bedrockagentcore
 
-from .platform_stack_original import BlueyPlatformStack as _BlueyPlatformStack
+from stacks.platform_stack_original import BlueyPlatformStack as _BlueyPlatformStack
 
 
 class BlueyPlatformStack(_BlueyPlatformStack):
-    """Original platform stack with managed-KB retrieval configuration removed."""
+    """Original platform stack with the incompatible KB result-count override removed."""
 
     _KB_TARGETS = {
         "StandardBankKnowledgeTarget",
@@ -28,10 +29,10 @@ class BlueyPlatformStack(_BlueyPlatformStack):
     def _remove_invalid_kb_result_count(self) -> None:
         """Remove the optional result-count override from managed-KB targets.
 
-        Bedrock Managed Knowledge Bases defaults to five retrieved chunks, so
-        omitting this optional field preserves the existing behaviour while
-        preventing the AgentCore Gateway connector from sending a string where
-        the Bedrock Retrieve API requires an integer.
+        AWS documents five results as the default for managed Knowledge Base
+        retrieval. Omitting the optional override avoids the AgentCore Gateway
+        connector serializing ``numberOfResults`` as a string while preserving
+        the existing effective result limit.
         """
         for child in self.node.find_all():
             if not isinstance(child, bedrockagentcore.CfnGatewayTarget):
