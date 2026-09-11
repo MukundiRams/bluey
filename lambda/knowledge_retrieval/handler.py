@@ -37,7 +37,7 @@ def lambda_handler(event, context):
         knowledgeBaseId=KB_ID,
         retrievalQuery={"text": text.strip()},
         retrievalConfiguration={
-            "vectorSearchConfiguration": {
+            "managedSearchConfiguration": {
                 "numberOfResults": _number_of_results(event),
             }
         },
