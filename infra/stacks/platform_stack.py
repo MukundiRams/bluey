@@ -220,7 +220,7 @@ class BlueyPlatformStack(Stack):
             {"name": "get_transactions", "description": "Retrieve recent transactions for a specific account", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["accountId"]}},
             {"name": "check_documents_status", "description": "Check whether required documents are uploaded", "inputSchema": {"type": "object", "properties": {"sessionId": {"type": "string"}}, "required": ["sessionId"]}},
             {"name": "save_applicant_info", "description": "Save applicant name, phone and email for banker review", "inputSchema": {"type": "object", "properties": {"phone": {"type": "string"}, "name": {"type": "string"}, "sessionId": {"type": "string"}, "email": {"type": "string"}}, "required": ["sessionId", "name", "phone", "email"]}},
-            {"name": "get_transaction_chart", "description": "Generate spending-by-category chart data", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "sessionId": {"type": "string"}}, "required": ["accountId", "sessionId"]}},
+            {"name": "get_transaction_chart", "description": "Generate a detailed spending breakdown (bar, pie, and time-series chart data plus a numeric summary) for one account or, given a customerId, aggregated across all of a customer's accounts", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "customerId": {"type": "string"}, "sessionId": {"type": "string"}}, "required": ["sessionId"]}},
         ]
         main_sessions_schema = [
             tool for tool in sessions_schema

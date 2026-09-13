@@ -33,6 +33,17 @@ def _tool_name(context):
     return tool_name
 
 
+def _floats_to_decimal(value):
+    """Recursively convert float values to Decimal (via str) for DynamoDB writes."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _floats_to_decimal(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_floats_to_decimal(v) for v in value]
+    return value
+
+
 def lambda_handler(event, context):
     tool_name = _tool_name(context)
 
@@ -162,25 +173,107 @@ def lambda_handler(event, context):
         return {"result": "saved"}
 
     if tool_name == "get_transaction_chart":
-        account_id = event["accountId"]
+        account_id = event.get("accountId")
+        customer_id = event.get("customerId")
         session_id = event.get("sessionId")
-        resp = dynamodb.Table(TRANSACTIONS_TABLE).query(
-            KeyConditionExpression="accountId = :aid",
-            ExpressionAttributeValues={":aid": account_id},
-        )
-        totals = {}
-        for txn in resp.get("Items", []):
+
+        if not account_id and not customer_id:
+            return {"error": "accountId or customerId is required"}
+
+        # "spending breakdown" style questions are about the whole customer,
+        # not one specific account, so aggregate across every account they
+        # hold when only a customerId is given. A specific accountId still
+        # narrows the chart to that one account.
+        if account_id:
+            account_ids = [account_id]
+        else:
+            accounts_resp = dynamodb.Table(ACCOUNTS_TABLE).query(
+                KeyConditionExpression="customerId = :cid",
+                ExpressionAttributeValues={":cid": customer_id},
+            )
+            account_ids = [a["accountId"] for a in accounts_resp.get("Items", []) if a.get("accountId")]
+            if not account_ids:
+                return {"error": f"no accounts found for customer {customer_id}"}
+
+        transactions_table = dynamodb.Table(TRANSACTIONS_TABLE)
+        items = []
+        for aid in account_ids:
+            resp = transactions_table.query(
+                KeyConditionExpression="accountId = :aid",
+                ExpressionAttributeValues={":aid": aid},
+            )
+            items.extend(resp.get("Items", []))
+
+        category_totals: dict = {}
+        category_counts: dict = {}
+        daily_totals: dict = {}
+        total_spend = 0.0
+        total_income = 0.0
+
+        for txn in items:
             amount = float(txn.get("amount", 0))
             if amount < 0:
+                spend = abs(amount)
                 category = txn.get("category", "Other")
-                totals[category] = totals.get(category, 0.0) + abs(amount)
-        chart_data = {"type": "bar", "title": "Spending by Category", "labels": list(totals), "values": [round(v, 2) for v in totals.values()]}
+                category_totals[category] = category_totals.get(category, 0.0) + spend
+                category_counts[category] = category_counts.get(category, 0) + 1
+                date_key = str(txn.get("date#transactionId", "")).split("#", 1)[0] or "unknown"
+                daily_totals[date_key] = daily_totals.get(date_key, 0.0) + spend
+                total_spend += spend
+            else:
+                total_income += amount
+
+        total_spend = round(total_spend, 2)
+        total_income = round(total_income, 2)
+        labels = list(category_totals.keys())
+        values = [round(category_totals[c], 2) for c in labels]
+
+        bar_chart = {"type": "bar", "title": "Spending by Category", "labels": labels, "values": values}
+        pie_chart = {
+            "type": "pie",
+            "title": "Spending Breakdown (%)",
+            "labels": labels,
+            "values": values,
+            "percentages": [round(v / total_spend * 100, 1) if total_spend else 0 for v in values],
+        }
+        sorted_days = sorted(daily_totals)
+        line_chart = {
+            "type": "line",
+            "title": "Spending Over Time",
+            "labels": sorted_days,
+            "values": [round(daily_totals[d], 2) for d in sorted_days],
+        }
+
+        category_breakdown = [
+            {
+                "category": c,
+                "amount": round(category_totals[c], 2),
+                "percentage": round(category_totals[c] / total_spend * 100, 1) if total_spend else 0,
+                "transactionCount": category_counts[c],
+            }
+            for c in labels
+        ]
+        summary = {
+            "totalSpend": total_spend,
+            "totalIncome": total_income,
+            "netCashflow": round(total_income - total_spend, 2),
+            "transactionCount": len(items),
+            "spendingTransactionCount": sum(category_counts.values()),
+            "topCategory": max(category_totals, key=category_totals.get) if category_totals else None,
+            "averageTransactionAmount": round(total_spend / sum(category_counts.values()), 2) if category_counts else 0,
+            "accountsIncluded": account_ids,
+            "categoryBreakdown": category_breakdown,
+        }
+
+        # Top-level type/title/labels/values stay the original bar-chart shape
+        # for backward compatibility; "charts" and "summary" are additive.
+        chart_data = {**bar_chart, "charts": [bar_chart, pie_chart, line_chart], "summary": summary}
+
         if session_id:
-            dynamo_safe = {**chart_data, "values": [Decimal(str(v)) for v in chart_data["values"]]}
             dynamodb.Table(SESSIONS_TABLE).update_item(
                 Key={"sessionId": session_id},
                 UpdateExpression="SET pendingChartData = :c",
-                ExpressionAttributeValues={":c": dynamo_safe},
+                ExpressionAttributeValues={":c": _floats_to_decimal(chart_data)},
             )
         return {"result": chart_data}
 

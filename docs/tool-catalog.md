@@ -11,7 +11,7 @@ The following tool names and behavioural contracts are established in the suppli
 | `get_transactions` | Return recent transactions | `accountId`, optional `limit` |
 | `check_documents_status` | Check required document upload state | `sessionId` |
 | `save_applicant_info` | Save new-applicant details | `sessionId`, `name`, `phone`, `email` |
-| `get_transaction_chart` | Aggregate spending by category | `accountId`, `sessionId` |
+| `get_transaction_chart` | Detailed spending breakdown: bar/pie/line chart data plus a numeric summary | `sessionId`, and either `accountId` (single account) or `customerId` (aggregates all of that customer's accounts) |
 
 ## Important Gateway contract
 

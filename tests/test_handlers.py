@@ -122,3 +122,116 @@ def test_banker_list_and_detail(monkeypatch):
     assert body["session"]["sessionId"] == "sess-test"
     assert len(body["documents"]) == 1
 
+
+class _ChartFakeTable:
+    """Minimal DynamoDB Table stand-in: query() returns items whose values
+    contain the single ExpressionAttributeValues value (good enough for the
+    accountId / customerId lookups get_transaction_chart performs)."""
+
+    def __init__(self, items):
+        self.items = items
+        self.updates = []
+
+    def query(self, KeyConditionExpression=None, ExpressionAttributeValues=None, **kwargs):
+        value = next(iter(ExpressionAttributeValues.values()))
+        return {"Items": [i for i in self.items if value in i.values()]}
+
+    def update_item(self, **kwargs):
+        self.updates.append(kwargs)
+        return {}
+
+
+def _chart_module_and_context():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dynamodb_tool_chart", "lambda/dynamodb_tool/handler.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class Ctx:
+        client_context = type("ClientContext", (), {"custom": {"bedrockAgentCoreToolName": "main__get_transaction_chart"}})()
+
+    return module, Ctx()
+
+
+def test_transaction_chart_requires_account_or_customer_id():
+    module, ctx = _chart_module_and_context()
+    body = module.lambda_handler({"sessionId": "sess-1"}, ctx)
+    assert "error" in body
+
+
+def test_transaction_chart_single_account_produces_bar_pie_line_and_summary(monkeypatch):
+    from decimal import Decimal
+
+    module, ctx = _chart_module_and_context()
+
+    transactions = _ChartFakeTable([
+        {"accountId": "acc-001", "date#transactionId": "2026-08-25#t1",
+         "amount": Decimal("1000.00"), "category": "Income"},
+        {"accountId": "acc-001", "date#transactionId": "2026-08-26#t2",
+         "amount": Decimal("-200.00"), "category": "Food"},
+        {"accountId": "acc-001", "date#transactionId": "2026-08-27#t3",
+         "amount": Decimal("-100.00"), "category": "Transport"},
+    ])
+    sessions = _ChartFakeTable([])
+    tables = {module.TRANSACTIONS_TABLE: transactions, module.SESSIONS_TABLE: sessions}
+
+    class FakeDynamo:
+        def Table(self, name):
+            return tables[name]
+
+    monkeypatch.setattr(module, "dynamodb", FakeDynamo())
+
+    body = module.lambda_handler({"accountId": "acc-001", "sessionId": "sess-1"}, ctx)
+    result = body["result"]
+
+    # Backward-compatible top-level bar chart shape is unchanged.
+    assert result["type"] == "bar"
+    assert result["title"] == "Spending by Category"
+    assert set(result["labels"]) == {"Food", "Transport"}
+
+    chart_types = {c["type"] for c in result["charts"]}
+    assert chart_types == {"bar", "pie", "line"}
+
+    summary = result["summary"]
+    assert summary["totalSpend"] == 300.0
+    assert summary["totalIncome"] == 1000.0
+    assert summary["netCashflow"] == 700.0
+    assert summary["topCategory"] == "Food"
+    assert sessions.updates, "pendingChartData should have been written to the session"
+
+
+def test_transaction_chart_aggregates_all_accounts_for_customer_id(monkeypatch):
+    from decimal import Decimal
+
+    module, ctx = _chart_module_and_context()
+
+    accounts = _ChartFakeTable([
+        {"customerId": "cust-001", "accountId": "acc-001"},
+        {"customerId": "cust-001", "accountId": "acc-002"},
+    ])
+    transactions = _ChartFakeTable([
+        {"accountId": "acc-001", "date#transactionId": "2026-08-25#t1",
+         "amount": Decimal("-100.00"), "category": "Food"},
+        {"accountId": "acc-002", "date#transactionId": "2026-08-26#t2",
+         "amount": Decimal("-50.00"), "category": "Transport"},
+    ])
+    sessions = _ChartFakeTable([])
+    tables = {
+        module.ACCOUNTS_TABLE: accounts,
+        module.TRANSACTIONS_TABLE: transactions,
+        module.SESSIONS_TABLE: sessions,
+    }
+
+    class FakeDynamo:
+        def Table(self, name):
+            return tables[name]
+
+    monkeypatch.setattr(module, "dynamodb", FakeDynamo())
+
+    body = module.lambda_handler({"customerId": "cust-001", "sessionId": "sess-2"}, ctx)
+    result = body["result"]
+
+    assert sorted(result["summary"]["accountsIncluded"]) == ["acc-001", "acc-002"]
+    assert result["summary"]["totalSpend"] == 150.0
+
+
