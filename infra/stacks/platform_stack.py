@@ -89,6 +89,8 @@ class BlueyPlatformStack(Stack):
                     "TRANSACTIONS_TABLE": data_stack.tables["transactions"].table_name,
                     "CREDIT_TABLE": data_stack.tables["credit"].table_name,
                     "BANKERS_TABLE": data_stack.tables["bankers"].table_name,
+                    "APPLICATIONS_TABLE": data_stack.tables["applications"].table_name,
+                    "MESSAGES_TABLE": data_stack.tables["messages"].table_name,
                     # Set directly below once the Harness resources exist —
                     # left as "" here only as a placeholder default.
                     "HARNESS_ARN": "",
@@ -104,33 +106,33 @@ class BlueyPlatformStack(Stack):
         credit_proxy_role = execution_role("bluey-credit-proxy-role")
         financial_advice_role = execution_role("bluey-financial-advice-proxy-role")
 
-        # Banker API: sessions/customers/documents + private document reads.
+        # Banker API: sessions/customers/documents/applications + private document reads.
         data_stack.tables["sessions"].grant_read_write_data(banker_role)
         data_stack.tables["customers"].grant_read_data(banker_role)
         data_stack.tables["documents"].grant_read_data(banker_role)
+        data_stack.tables["applications"].grant_read_write_data(banker_role)
+        data_stack.tables["accounts"].grant_read_data(banker_role)
+        data_stack.tables["transactions"].grant_read_data(banker_role)
+        data_stack.tables["credit"].grant_read_data(banker_role)
+        data_stack.tables["bankers"].grant_read_data(banker_role)
+        data_stack.tables["messages"].grant_read_data(banker_role)
         data_stack.documents_bucket.grant_read(banker_role)
 
         # Document API: private upload/read + metadata and review flag.
         data_stack.documents_bucket.grant_read_write(document_role)
         data_stack.tables["documents"].grant_read_write_data(document_role)
         data_stack.tables["sessions"].grant_write_data(document_role)
+        data_stack.tables["applications"].grant_read_write_data(document_role)
 
-        # Gateway tool role: the same role is used by the session and credit
-        # targets, but each Gateway below receives only the targets it needs.
-        # "bankers" is required — lookup_customer's general-banker assignment
-        # reads/writes bluey-bankers directly. "messages" and "applications"
-        # are intentionally excluded: those tables exist (observed in the
-        # live account) but nothing in the current handler code reads or
-        # writes them yet — see docs/migration-checklist.md before wiring
-        # them in.
-        for key in ("sessions", "customers", "accounts", "transactions", "documents", "credit", "bankers"):
+        # Gateway tool role: access across all tables.
+        for key in ("sessions", "customers", "accounts", "transactions", "documents", "credit", "bankers", "applications", "messages"):
             data_stack.tables[key].grant_read_write_data(tool_role)
 
         # Harness proxies: session storage + Cognito token validation + AgentCore invocation.
-        data_stack.tables["sessions"].grant_read_write_data(chat_role)
-        data_stack.tables["sessions"].grant_read_write_data(account_opening_role)
-        data_stack.tables["sessions"].grant_read_write_data(credit_proxy_role)
-        data_stack.tables["sessions"].grant_read_write_data(financial_advice_role)
+        for proxy_role in (chat_role, account_opening_role, credit_proxy_role, financial_advice_role):
+            data_stack.tables["sessions"].grant_read_write_data(proxy_role)
+            data_stack.tables["messages"].grant_read_write_data(proxy_role)
+            data_stack.tables["applications"].grant_read_write_data(proxy_role)
         chat_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         account_opening_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         credit_proxy_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
@@ -359,17 +361,25 @@ class BlueyPlatformStack(Stack):
         lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway, credit_gateway_role, credit_gateway_permission)
         lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
 
-        def kb_target(logical_id, name, kb_id, gateway, role, retrieval=False):
-            params = {"knowledgeBaseId": kb_id}
-            if retrieval:
-                params = {"retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": 5}}, "knowledgeBaseId": kb_id}
+        def kb_target(logical_id, name, kb_id, gateway, role):
+            # numberOfResults must stay a fixed int in parameterValues and must
+            # never be exposed via parameterOverrides — otherwise the agent (or
+            # the connector's own default exposition) can send it back as a
+            # string, which the underlying Bedrock Retrieve API rejects with a
+            # numberOfResults-must-be-integer validation error at call time.
+            params = {"knowledgeBaseId": kb_id, "retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": 5}}}
             target = bedrockagentcore.CfnGatewayTarget(
                 self,
                 logical_id,
                 gateway_identifier=gateway.attr_gateway_identifier,
                 name=name,
                 credential_provider_configurations=[{"credentialProviderType": "GATEWAY_IAM_ROLE"}],
-                target_configuration={"mcp": {"connector": {"source": {"connectorId": "bedrock-knowledge-bases", "version": "1.0.0"}, "configurations": [{"name": "Retrieve", "parameterValues": params}]}}},
+                target_configuration={"mcp": {"connector": {"source": {"connectorId": "bedrock-knowledge-bases"}, "configurations": [{
+                    "name": "Retrieve",
+                    "description": "Search the knowledge base for relevant documents.",
+                    "parameterValues": params,
+                    "parameterOverrides": [{"path": "$.retrievalQuery.text", "description": "Search query for the knowledge base.", "visible": True}],
+                }]}}},
             )
             target.add_dependency(gateway)
             # Same IAM-propagation ordering requirement as the Lambda targets:
@@ -378,7 +388,7 @@ class BlueyPlatformStack(Stack):
             _depend_on_role_policy(target, role)
             return target
 
-        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role, retrieval=True)
+        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role)
         kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway, credit_gateway_role)
         kb_target(
             "AccountOpeningKnowledgeTarget",
@@ -393,7 +403,6 @@ class BlueyPlatformStack(Stack):
             knowledge_stack.main_kb.attr_knowledge_base_id,
             financial_advice_gateway,
             financial_advice_gateway_role,
-            retrieval=True,
         )
 
         prompts = {

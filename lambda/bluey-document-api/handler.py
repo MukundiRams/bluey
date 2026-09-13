@@ -9,6 +9,7 @@ s3 = boto3.client("s3", region_name=REGION)
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 documents_table = dynamodb.Table(os.environ.get("DOCUMENTS_TABLE", "bluey-documents"))
 sessions_table = dynamodb.Table(os.environ.get("SESSIONS_TABLE", "bluey-sessions"))
+applications_table = dynamodb.Table(os.environ.get("APPLICATIONS_TABLE", "bluey-applications"))
 BUCKET = os.environ.get("DOCUMENTS_BUCKET", "bluey-documents")
 
 
@@ -32,16 +33,36 @@ def lambda_handler(event, context):
     if action == "confirm_upload":
         session_id = body["sessionId"]
         doc_type = body["docType"]
+        now = datetime.now(timezone.utc).isoformat()
         documents_table.update_item(
             Key={"sessionId": session_id, "docType": doc_type},
             UpdateExpression="SET #s = :s, uploadedAt = :u",
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":s": "uploaded", ":u": datetime.now(timezone.utc).isoformat()},
+            ExpressionAttributeValues={":s": "uploaded", ":u": now},
         )
         resp = documents_table.query(KeyConditionExpression="sessionId = :sid", ExpressionAttributeValues={":sid": session_id})
         uploaded = {d["docType"] for d in resp.get("Items", []) if d.get("status") == "uploaded"}
         if {"id_document", "proof_of_address"}.issubset(uploaded):
-            sessions_table.update_item(Key={"sessionId": session_id}, UpdateExpression="SET reviewStatus = :rs", ExpressionAttributeValues={":rs": "pending_review"})
+            sessions_table.update_item(
+                Key={"sessionId": session_id},
+                UpdateExpression="SET reviewStatus = :rs, updatedAt = :u",
+                ExpressionAttributeValues={":rs": "pending_review", ":u": now},
+            )
+            # Also update applications table if application exists
+            try:
+                app_scan = applications_table.scan(
+                    FilterExpression="sessionId = :sid",
+                    ExpressionAttributeValues={":sid": session_id},
+                )
+                for app in app_scan.get("Items", []):
+                    applications_table.update_item(
+                        Key={"reference": app["reference"]},
+                        UpdateExpression="SET #s = :s, documentsUploaded = :d, updatedAt = :u",
+                        ExpressionAttributeNames={"#s": "status"},
+                        ExpressionAttributeValues={":s": "Pending", ":d": True, ":u": now},
+                    )
+            except Exception:
+                pass
         return _response(200, {"result": "confirmed"})
 
     if action == "list_documents":
@@ -51,8 +72,9 @@ def lambda_handler(event, context):
         resp = documents_table.query(KeyConditionExpression="sessionId = :sid", ExpressionAttributeValues={":sid": session_id})
         docs = resp.get("Items", [])
         for doc in docs:
-            if doc.get("status") == "uploaded":
-                doc["viewUrl"] = s3.generate_presigned_url("get_object", Params={"Bucket": BUCKET, "Key": doc["s3Key"]}, ExpiresIn=600)
+            s3_key = doc.get("s3Key") or f"documents/{session_id}/{doc.get('docType')}"
+            if BUCKET:
+                doc["viewUrl"] = s3.generate_presigned_url("get_object", Params={"Bucket": BUCKET, "Key": s3_key}, ExpiresIn=3600)
         return _response(200, {"documents": docs})
 
     return _response(400, {"error": "unknown action"})

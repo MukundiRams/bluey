@@ -22,6 +22,8 @@ TABLE_NAMES = {
     "bankers": "bluey-bankers",
     "credit": "bluey-credit",
     "applications": "bluey-applications",
+    "documents": "bluey-documents",
+    "messages": "bluey-messages",
 }
 
 
@@ -593,6 +595,7 @@ CREDIT = [
 APPLICATIONS = [
     {
         "reference": "APP-DEMO-001",
+        "sessionId": "sess-demo-006",
         "customerId": "cust-006",
         "accountType": "Savings",
         "status": "Pending",
@@ -600,11 +603,93 @@ APPLICATIONS = [
             "fullName": "Lerato Mokoena",
             "email": "lerato.mokoena@example.com",
             "phone": "0820001006",
+            "idNumber": "9506066789094",
+            "address": "124 Oxford Road, Rosebank, Johannesburg, 2196",
         },
         "createdAt": iso(26, 13),
+        "updatedAt": iso(26, 13),
+    },
+    {
+        "reference": "APP-DEMO-002",
+        "sessionId": "sess-demo-005",
+        "customerId": "cust-005",
+        "accountType": "MyMo Account",
+        "status": "Pending",
+        "applicantData": {
+            "fullName": "Thabo Molefe",
+            "email": "thabo.molefe@example.com",
+            "phone": "0820001005",
+            "idNumber": "9805055678093",
+            "address": "45 Nelson Mandela Drive, Bloemfontein, 9301",
+        },
+        "createdAt": iso(27, 11),
+        "updatedAt": iso(27, 11),
     },
 ]
 
+DOCUMENTS = [
+    {
+        "sessionId": "sess-demo-006",
+        "docType": "id_document",
+        "s3Key": "documents/sess-demo-006/id_document",
+        "status": "uploaded",
+        "fileName": "lerato_mokoena_id.pdf",
+        "fileSize": 1048576,
+        "contentType": "application/pdf",
+        "createdAt": iso(26, 13),
+        "uploadedAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-006",
+        "docType": "proof_of_address",
+        "s3Key": "documents/sess-demo-006/proof_of_address",
+        "status": "uploaded",
+        "fileName": "lerato_mokoena_utility_bill.pdf",
+        "fileSize": 524288,
+        "contentType": "application/pdf",
+        "createdAt": iso(26, 13),
+        "uploadedAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-005",
+        "docType": "id_document",
+        "s3Key": "documents/sess-demo-005/id_document",
+        "status": "uploaded",
+        "fileName": "thabo_molefe_smart_id.pdf",
+        "fileSize": 839210,
+        "contentType": "application/pdf",
+        "createdAt": iso(27, 11),
+        "uploadedAt": iso(27, 11),
+    },
+    {
+        "sessionId": "sess-demo-005",
+        "docType": "proof_of_address",
+        "s3Key": "documents/sess-demo-005/proof_of_address",
+        "status": "uploaded",
+        "fileName": "thabo_molefe_rates_taxes.pdf",
+        "fileSize": 612400,
+        "contentType": "application/pdf",
+        "createdAt": iso(27, 11),
+        "uploadedAt": iso(27, 11),
+    },
+]
+
+MESSAGES = [
+    {
+        "sessionId": "sess-demo-006",
+        "createdAt#messageId": f"{iso(26, 13)}#msg-001",
+        "role": "user",
+        "text": "I want to open a savings account.",
+        "createdAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-006",
+        "createdAt#messageId": f"{iso(26, 13)}#msg-002",
+        "role": "assistant",
+        "text": "Please provide your details and upload your required documents.",
+        "createdAt": iso(26, 13),
+    },
+]
 
 DATASETS = {
     "customers": CUSTOMERS,
@@ -614,6 +699,8 @@ DATASETS = {
     "bankers": BANKERS,
     "credit": CREDIT,
     "applications": APPLICATIONS,
+    "documents": DOCUMENTS,
+    "messages": MESSAGES,
 }
 
 
