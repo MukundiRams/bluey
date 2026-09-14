@@ -25,6 +25,7 @@ via `HARNESS_ARN = os.environ.get("HARNESS_ARN", "")`, so no Lambda
 code changes were needed for this simplification.
 """
 
+import os
 from pathlib import Path
 
 from aws_cdk import (
@@ -42,6 +43,13 @@ from constructs import Construct
 
 
 HARNESS_IMAGE = "public.ecr.aws/i0n3d3i5/harness-us-east-1:latest"
+
+# The Gateway API rejects an in-place searchType change while targets are
+# attached ("Search type cannot be updated ... for a gateway with 1 or more
+# targets"). Set BLUEY_ATTACH_TARGETS=0 for one deploy to detach all targets
+# (CFN deletes them before the Gateway update, per DependsOn ordering), let
+# the searchType change land, then redeploy normally to reattach them.
+ATTACH_GATEWAY_TARGETS = os.environ.get("BLUEY_ATTACH_TARGETS", "1") != "0"
 
 
 def _policy(actions, resources, sid):
@@ -362,10 +370,11 @@ class BlueyPlatformStack(Stack):
             source_arn=credit_gateway.attr_gateway_arn,
         )
 
-        lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway, main_gateway_role, main_gateway_permission)
-        lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway, account_opening_gateway_role, account_opening_gateway_permission)
-        lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway, credit_gateway_role, credit_gateway_permission)
-        lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
+        if ATTACH_GATEWAY_TARGETS:
+            lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway, main_gateway_role, main_gateway_permission)
+            lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway, account_opening_gateway_role, account_opening_gateway_permission)
+            lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway, credit_gateway_role, credit_gateway_permission)
+            lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
 
         def kb_target(logical_id, name, kb_id, gateway, role):
             # numberOfResults must stay a fixed int in parameterValues and must
@@ -405,22 +414,23 @@ class BlueyPlatformStack(Stack):
             _depend_on_role_policy(target, role)
             return target
 
-        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role)
-        kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway, credit_gateway_role)
-        kb_target(
-            "AccountOpeningKnowledgeTarget",
-            "bluey-kb-account-opening",
-            knowledge_stack.account_opening_kb.attr_knowledge_base_id,
-            account_opening_gateway,
-            account_opening_gateway_role,
-        )
-        kb_target(
-            "FinancialAdviceKnowledgeTarget",
-            "bluey-kb-financial-advice",
-            knowledge_stack.main_kb.attr_knowledge_base_id,
-            financial_advice_gateway,
-            financial_advice_gateway_role,
-        )
+        if ATTACH_GATEWAY_TARGETS:
+            kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role)
+            kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway, credit_gateway_role)
+            kb_target(
+                "AccountOpeningKnowledgeTarget",
+                "bluey-kb-account-opening",
+                knowledge_stack.account_opening_kb.attr_knowledge_base_id,
+                account_opening_gateway,
+                account_opening_gateway_role,
+            )
+            kb_target(
+                "FinancialAdviceKnowledgeTarget",
+                "bluey-kb-financial-advice",
+                knowledge_stack.main_kb.attr_knowledge_base_id,
+                financial_advice_gateway,
+                financial_advice_gateway_role,
+            )
 
         prompts = {
             "main": (Path(__file__).parents[2] / "config/prompts/main.txt").read_text(encoding="utf-8"),
