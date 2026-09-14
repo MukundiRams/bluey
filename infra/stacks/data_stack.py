@@ -16,7 +16,7 @@ class BlueyDataStack(Stack):
 
         def table(name: str, pk: str, sk: str | None = None) -> dynamodb.Table:
             kwargs = dict(
-                table_name=name,
+            table_name=f"{name}-{stage}",
                 partition_key=dynamodb.Attribute(name=pk, type=dynamodb.AttributeType.STRING),
                 billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
                 removal_policy=RemovalPolicy.RETAIN if stage != "dev" else RemovalPolicy.DESTROY,

@@ -27,6 +27,10 @@ TABLE_NAMES = {
 }
 
 
+def table_name(dataset_name, stage):
+    return f"{TABLE_NAMES[dataset_name]}-{stage}"
+
+
 def customer(customer_id, name, email, phone, id_number, banker, **features):
     first_name, *last_name = name.split()
     return {
@@ -759,12 +763,12 @@ def validate():
         raise ValueError(f"Accounts with fewer than three transactions: {missing_transactions}")
 
 
-def write_dataset(dynamodb, dataset_name, items, dry_run):
-    table_name = TABLE_NAMES[dataset_name]
-    print(f"{dataset_name}: {len(items)} records -> {table_name}")
+def write_dataset(dynamodb, dataset_name, items, stage, dry_run):
+    target_table_name = table_name(dataset_name, stage)
+    print(f"{dataset_name}: {len(items)} records -> {target_table_name}")
     if dry_run:
         return
-    table = dynamodb.Table(table_name)
+    table = dynamodb.Table(target_table_name)
     with table.batch_writer(overwrite_by_pkeys=None) as batch:
         for item in items:
             batch.put_item(Item=decimalize(item))
@@ -774,6 +778,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--profile", help="AWS profile for the target account")
+    parser.add_argument("--stage", default="dev", help="CDK deployment stage to seed")
     parser.add_argument(
         "--table",
         action="append",
@@ -791,7 +796,7 @@ def main():
     dynamodb = session.resource("dynamodb")
     selected = args.tables or list(DATASETS)
     for dataset_name in selected:
-        write_dataset(dynamodb, dataset_name, DATASETS[dataset_name], args.dry_run)
+        write_dataset(dynamodb, dataset_name, DATASETS[dataset_name], args.stage, args.dry_run)
     print("Dry run complete." if args.dry_run else "Seeding complete.")
 
 

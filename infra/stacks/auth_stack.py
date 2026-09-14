@@ -9,7 +9,7 @@ class BlueyAuthStack(Stack):
         self.user_pool = cognito.UserPool(
             self,
             "BlueyUserPool",
-            user_pool_name="bluey-user-pool",
+            user_pool_name=f"bluey-user-pool-{stage}",
             self_sign_up_enabled=True,
             sign_in_aliases=cognito.SignInAliases(email=True),
             standard_attributes=cognito.StandardAttributes(

@@ -43,13 +43,17 @@ from constructs import Construct
 
 
 HARNESS_IMAGE = "public.ecr.aws/i0n3d3i5/harness-us-east-1:latest"
+HARNESS_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+HARNESS_REGION = "us-east-1"
 
 # The Gateway API rejects an in-place searchType change while targets are
 # attached ("Search type cannot be updated ... for a gateway with 1 or more
-# targets"). Set BLUEY_ATTACH_TARGETS=0 for one deploy to detach all targets
-# (CFN deletes them before the Gateway update, per DependsOn ordering), let
-# the searchType change land, then redeploy normally to reattach them.
+# targets"). First set BLUEY_ATTACH_TARGETS=0 and
+# BLUEY_GATEWAY_SEARCH_TYPE=UNSET to detach targets without changing the
+# Gateway. Then set BLUEY_GATEWAY_SEARCH_TYPE=SEMANTIC, and finally reattach
+# targets in a third deployment.
 ATTACH_GATEWAY_TARGETS = os.environ.get("BLUEY_ATTACH_TARGETS", "1") != "0"
+GATEWAY_SEARCH_TYPE = os.environ.get("BLUEY_GATEWAY_SEARCH_TYPE", "SEMANTIC")
 
 
 def _policy(actions, resources, sid):
@@ -59,6 +63,8 @@ def _policy(actions, resources, sid):
 class BlueyPlatformStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, *, stage: str, data_stack, auth_stack, knowledge_stack, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        if self.region != HARNESS_REGION:
+            raise ValueError(f"Bluey AgentCore Harnesses must be deployed in {HARNESS_REGION}, not {self.region}")
 
         # ---------------------------------------------------------------
         # Lambdas + IAM roles (formerly api_stack.py)
@@ -80,7 +86,7 @@ class BlueyPlatformStack(Stack):
             return lambda_.Function(
                 self,
                 name.replace("-", ""),
-                function_name=name,
+                function_name=f"{name}-{stage}",
                 runtime=lambda_.Runtime.PYTHON_3_12,
                 handler="handler.lambda_handler",
                 code=lambda_.Code.from_asset(str(Path(__file__).parents[2] / (code_path or f"lambda/{name}"))),
@@ -187,7 +193,7 @@ class BlueyPlatformStack(Stack):
         api = apigw.HttpApi(
             self,
             "BlueyHttpApi",
-            api_name="bluey-api",
+            api_name=f"bluey-api-{stage}",
             cors_preflight=apigw.CorsPreflightOptions(
                 allow_origins=["*"],
                 allow_headers=["authorization", "content-type"],
@@ -277,8 +283,11 @@ class BlueyPlatformStack(Stack):
                 protocol_configuration={
                     "mcp": {
                         "supportedVersions": ["2025-11-25", "2026-07-28"],
-                        # Enables semantic (embedding-based) search over this gateway's tools.
-                        "searchType": "SEMANTIC",
+                        **(
+                            {"searchType": GATEWAY_SEARCH_TYPE}
+                            if GATEWAY_SEARCH_TYPE != "UNSET"
+                            else {}
+                        ),
                     }
                 },
                 exception_level="DEBUG",
@@ -377,12 +386,12 @@ class BlueyPlatformStack(Stack):
             lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
 
         def kb_target(logical_id, name, kb_id, gateway, role):
-            # numberOfResults must stay a fixed int in parameterValues and must
-            # never be exposed via parameterOverrides — otherwise the agent (or
-            # the connector's own default exposition) can send it back as a
-            # string, which the underlying Bedrock Retrieve API rejects with a
-            # numberOfResults-must-be-integer validation error at call time.
-            params = {"knowledgeBaseId": kb_id, "retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": 5}}}
+            # numberOfResults is intentionally omitted here: the connector was
+            # still exposing it to the agent as an overridable parameter (sent
+            # back as a string), which the Bedrock Retrieve API rejects with a
+            # numberOfResults-must-be-integer validation error. Leaving it out
+            # lets the Retrieve API fall back to its own default.
+            params = {"knowledgeBaseId": kb_id}
             target = bedrockagentcore.CfnGatewayTarget(
                 self,
                 logical_id,
@@ -396,12 +405,8 @@ class BlueyPlatformStack(Stack):
                     "parameterOverrides": [
                         {
                             "path": "$.retrievalQuery.text",
-                            "description": "Search query for the knowledge base.",
+                            "description": "The search query string, e.g. {\"retrievalQuery\": {\"text\": \"your query\"}}.",
                             "visible": True
-                        },
-                        {
-                            "path": "$.retrievalConfiguration.managedSearchConfiguration.numberOfResults",
-                            "visible": False  # locks the integer value in parameterValues, prevents string override
                         }
                     ],
                 }]}}},
@@ -445,6 +450,45 @@ class BlueyPlatformStack(Stack):
                 logical_id,
                 role_name=f"bluey-harness-{name}-role-{stage}",
                 assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            )
+            role.add_to_policy(
+                _policy(
+                    [
+                        "ecr-public:GetAuthorizationToken",
+                        "ecr-public:BatchCheckLayerAvailability",
+                        "ecr-public:GetDownloadUrlForLayer",
+                        "ecr-public:BatchGetImage",
+                    ],
+                    ["*"],
+                    "PullHarnessImage",
+                )
+            )
+            role.add_to_policy(
+                _policy(
+                    [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents",
+                    ],
+                    [f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock-agentcore/runtimes/*"],
+                    "WriteHarnessLogs",
+                )
+            )
+            role.add_to_policy(
+                _policy(
+                    [
+                        "bedrock:InvokeModel",
+                        "bedrock:InvokeModelWithResponseStream",
+                    ],
+                    [
+                        f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/*",
+                        f"arn:aws:bedrock:{self.region}::foundation-model/*",
+                        f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                        "arn:aws:bedrock:::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    ],
+                    "InvokeHarnessModel",
+                )
             )
             role.add_to_policy(
                 _policy(["bedrock-agentcore:InvokeGateway"], [gateway.attr_gateway_arn], "InvokeAssignedGateway")
@@ -532,22 +576,29 @@ class BlueyPlatformStack(Stack):
 
         main_harness = harness(
             "MainHarness", f"bluey_main_{stage}", prompts["main"], runtimes["main"],
-            "global.anthropic.claude-sonnet-4-5-20250929-v1:0", main_harness_role, main_gateway,
+            HARNESS_MODEL_ID, main_harness_role, main_gateway,
         )
         credit_harness = harness(
             "CreditHarness", f"bluey_credit_{stage}", prompts["credit"], runtimes["credit"],
-            "us.anthropic.claude-sonnet-4-5-20250929-v1:0", credit_harness_role, credit_gateway,
+            HARNESS_MODEL_ID, credit_harness_role, credit_gateway,
         )
         account_harness = harness(
             "AccountOpeningHarness", f"bluey_account_opening_{stage}", prompts["account-opening"],
-            runtimes["account-opening"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            runtimes["account-opening"], HARNESS_MODEL_ID,
             account_opening_harness_role, account_opening_gateway,
         )
         financial_advice_harness = harness(
             "FinancialAdviceHarness", f"bluey_financial_advice_{stage}", prompts["financial-advice"],
-            runtimes["financial-advice"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            runtimes["financial-advice"], HARNESS_MODEL_ID,
             financial_advice_harness_role, financial_advice_gateway,
         )
+
+        # AgentCore provisions managed memory in DynamoDB while each Harness
+        # is created. Serializing creation avoids service-side transaction
+        # conflicts when multiple Harnesses provision memory at once.
+        credit_harness.add_dependency(main_harness)
+        account_harness.add_dependency(credit_harness)
+        financial_advice_harness.add_dependency(account_harness)
 
         # Harness invocation checks a runtime-endpoint subresource, so the
         # generated harness ARN must include a trailing wildcard.
