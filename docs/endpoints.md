@@ -1,6 +1,6 @@
-# Bluey — Working Endpoints & Connection Guide (hackathon stage)
+# Bluey — Working Endpoints & Connection Guide (dev stage)
 
-Values below are from `python scripts/stack_outputs.py --stage hackathon --region us-east-1`.
+Values below are from `python scripts/stack_outputs.py --stage dev --region us-east-1`.
 Re-run that command after any redeploy — Lambda Function URLs and IDs are stable per-stack but this
 file will go stale if the stack is destroyed/recreated.
 
@@ -8,13 +8,13 @@ file will go stale if the stack is destroyed/recreated.
 
 | Purpose | URL |
 |---|---|
-| Customer chat | `https://37yo7j53bjgzt6bccsx4iztqiy0dhvon.lambda-url.us-east-1.on.aws/` |
-| Account opening | `https://ttrqvxsolxrjuiycbmmqw6ja5q0gpnph.lambda-url.us-east-1.on.aws/` |
-| Credit guidance | `https://fxrnd5tujid2jywddb3yl3pf3m0bwtlw.lambda-url.us-east-1.on.aws/` |
-| Financial advice | `https://kmihq6iasagfzxdhrkaolfwfh40pqcwx.lambda-url.us-east-1.on.aws/` |
-| Banker API (review/approve/reject) | `https://ta02ckm5gb.execute-api.us-east-1.amazonaws.com/banker` |
-| Document API | `https://ta02ckm5gb.execute-api.us-east-1.amazonaws.com/documents` |
-| HTTP API base | `https://ta02ckm5gb.execute-api.us-east-1.amazonaws.com` |
+| Customer chat | `https://u2oulww7uojmz52okjacg6teyq0thmdg.lambda-url.us-east-1.on.aws/` |
+| Account opening | `https://dhtn6d2wqqr6n7z7do52mnesui0eudkn.lambda-url.us-east-1.on.aws/` |
+| Credit guidance | `https://s5kvktkeavrcb5rtl6f7hre2xa0tmmdr.lambda-url.us-east-1.on.aws/` |
+| Financial advice | `https://tw2x7mtrlcdtjvyzwm6ntx6foa0vwpoo.lambda-url.us-east-1.on.aws/` |
+| Banker API (review/approve/reject) | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com/banker` |
+| Document API | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com/documents` |
+| HTTP API base | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com` |
 
 All chat-style endpoints (customer chat, account opening, credit, financial advice) take the same
 request/response shape — see [frontend-contract.md](frontend-contract.md).
@@ -43,8 +43,8 @@ access token.
 | Setting | Value |
 |---|---|
 | Region | `us-east-1` |
-| User Pool ID | `us-east-1_FT3OTxGPU` |
-| App Client ID | `5h5olht3fonq8qmrcf9lm16mhn` |
+| User Pool ID | `us-east-1_xe8GIecSJ` |
+| App Client ID | `rc7ahojg72vag18d84p1eqvmn` |
 | Bankers group | `Bankers` |
 
 The app client has no secret (public SPA client) and only supports the `USER_PASSWORD_AUTH` flow
@@ -56,7 +56,7 @@ The app client has no secret (public SPA client) and only supports the `USER_PAS
 aws cognito-idp initiate-auth \
   --region us-east-1 \
   --auth-flow USER_PASSWORD_AUTH \
-  --client-id 5h5olht3fonq8qmrcf9lm16mhn \
+  --client-id rc7ahojg72vag18d84p1eqvmn \
   --auth-parameters USERNAME=<email>,PASSWORD=<password>
 ```
 
@@ -71,17 +71,26 @@ To create a test user (self-sign-up is enabled, so this can also happen via a si
 ```bash
 aws cognito-idp admin-create-user \
   --region us-east-1 \
-  --user-pool-id us-east-1_FT3OTxGPU \
-  --username <email> \
-  --user-attributes Name=email,Value=<email> Name=name,Value="Test User" \
-  --temporary-password <TempPass123!>
+  --user-pool-id us-east-1_xe8GIecSJ \
+  --username test7@gmail.com \
+  --user-attributes Name=email,Value=test7@gmail.com Name=name,Value="Test User7" \
+  --temporary-password TPass123!
 
 aws cognito-idp admin-set-user-password \
   --region us-east-1 \
-  --user-pool-id us-east-1_FT3OTxGPU \
-  --username <email> \
-  --password <Password123!> \
+  --user-pool-id us-east-1_xe8GIecSJ \
+  --username test7@gmail.com \
+  --password TPass123% \
   --permanent
+
+  
+aws cognito-idp initiate-auth \
+  --region us-east-1 \
+  --auth-flow USER_PASSWORD_AUTH \
+  --client-id rc7ahojg72vag18d84p1eqvmn \
+  --auth-parameters 'USERNAME=test7@gmail.com,PASSWORD=TPass123%' \
+  --query 'AuthenticationResult.AccessToken' \
+  --output text
 ```
 
 To add a banker (grants access to the Banker API):
@@ -89,7 +98,7 @@ To add a banker (grants access to the Banker API):
 ```bash
 aws cognito-idp admin-add-user-to-group \
   --region us-east-1 \
-  --user-pool-id us-east-1_FT3OTxGPU \
+  --user-pool-id us-east-1_xe8GIecSJ \
   --username <email> \
   --group-name Bankers
 ```
@@ -97,9 +106,9 @@ aws cognito-idp admin-add-user-to-group \
 ## Quick smoke test
 
 ```bash
-export CHAT_URL=https://37yo7j53bjgzt6bccsx4iztqiy0dhvon.lambda-url.us-east-1.on.aws/
-export CREDIT_URL=https://fxrnd5tujid2jywddb3yl3pf3m0bwtlw.lambda-url.us-east-1.on.aws/
-export FINANCIAL_ADVICE_URL=https://kmihq6iasagfzxdhrkaolfwfh40pqcwx.lambda-url.us-east-1.on.aws/
+export CHAT_URL=https://u2oulww7uojmz52okjacg6teyq0thmdg.lambda-url.us-east-1.on.aws/
+export CREDIT_URL=https://s5kvktkeavrcb5rtl6f7hre2xa0tmmdr.lambda-url.us-east-1.on.aws/
+export FINANCIAL_ADVICE_URL=https://tw2x7mtrlcdtjvyzwm6ntx6foa0vwpoo.lambda-url.us-east-1.on.aws/
 export COGNITO_ACCESS_TOKEN=<AccessToken from initiate-auth above>
 python scripts/smoke_test.py
 ```
