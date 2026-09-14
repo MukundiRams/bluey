@@ -266,7 +266,13 @@ class BlueyPlatformStack(Stack):
                 authorizer_type="AWS_IAM",
                 role_arn=role.role_arn,
                 protocol_type="MCP",
-                protocol_configuration={"mcp": {"supportedVersions": ["2025-11-25", "2026-07-28"]}},
+                protocol_configuration={
+                    "mcp": {
+                        "supportedVersions": ["2025-11-25", "2026-07-28"],
+                        # Enables semantic (embedding-based) search over this gateway's tools.
+                        "searchType": "SEMANTIC",
+                    }
+                },
                 exception_level="DEBUG",
             )
             return gateway, role
@@ -378,9 +384,20 @@ class BlueyPlatformStack(Stack):
                     "name": "Retrieve",
                     "description": "Search the knowledge base for relevant documents.",
                     "parameterValues": params,
-                    "parameterOverrides": [{"path": "$.retrievalQuery.text", "description": "Search query for the knowledge base.", "visible": True}],
+                    "parameterOverrides": [
+                        {
+                            "path": "$.retrievalQuery.text",
+                            "description": "Search query for the knowledge base.",
+                            "visible": True
+                        },
+                        {
+                            "path": "$.retrievalConfiguration.managedSearchConfiguration.numberOfResults",
+                            "visible": False  # locks the integer value in parameterValues, prevents string override
+                        }
+                    ],
                 }]}}},
             )
+
             target.add_dependency(gateway)
             # Same IAM-propagation ordering requirement as the Lambda targets:
             # the gateway role must be able to read the Knowledge Base before
