@@ -66,6 +66,7 @@ GatewayArnOutput=arn:aws:bedrock-agentcore:us-east-1:705160054650:gateway/bluey-
 
 
 
+ python scripts/stack_outputs.py --stage dev --region us-east-1
 [BlueyData-dev]
 ExportsOutputFnGetAttblueycustomersE31C3D67ArnE665E3DA=arn:aws:dynamodb:us-east-1:705160054650:table/bluey-customers-dev
 ExportsOutputFnGetAttblueymessagesBE11F127Arn25AE2212=arn:aws:dynamodb:us-east-1:705160054650:table/bluey-messages-dev
@@ -122,6 +123,7 @@ ReadonlyDataFunctionUrl=https://icvr467fy7lgrz6jna4fup3hbm0mavbs.lambda-url.us-e
 AccountOpeningHarnessArnOutput=arn:aws:bedrock-agentcore:us-east-1:705160054650:harness/bluey_account_opening_dev-gj1TydtMXH
 FinancialAdviceGatewayArnOutput=arn:aws:bedrock-agentcore:us-east-1:705160054650:gateway/bluey-gateway-financial-advice-dev-8zrwm2fhzt
 HttpApiUrl=https://30cxlzxl00.execute-api.us-east-1.amazonaws.com
+RouterFunctionUrl=https://sd6e7murbwgbpfxumuojyqutpq0vckbt.lambda-url.us-east-1.on.aws/
 ChatFunctionUrl=https://u2oulww7uojmz52okjacg6teyq0thmdg.lambda-url.us-east-1.on.aws/
 AccountOpeningFunctionUrl=https://dhtn6d2wqqr6n7z7do52mnesui0eudkn.lambda-url.us-east-1.on.aws/
 BankerApiUrl=https://30cxlzxl00.execute-api.us-east-1.amazonaws.com/banker

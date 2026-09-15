@@ -1,5 +1,26 @@
 # Frontend contract
 
+## Router (recommended)
+
+`POST <router-function-url>` — send every customer message here unless your UI already knows the
+intent (e.g. a dedicated account-opening screen). It uses the same `{prompt, session_id}` request
+shape and `{reply, session_id}` response shape as the other endpoints (including `chartData` when
+relevant), plus an extra `agent` field in the response naming which agent handled the message
+(`"main"`, `"credit"`, `"account-opening"`, or `"financial-advice"`).
+
+Routing is decided once per `session_id` (on that session's first message) and then stays sticky for
+the rest of the conversation, so a topic switch mid-conversation won't silently move you to a
+different agent's memory. To force a specific agent (e.g. from a menu/tab the user picked), pass
+`"route_override"` in the request body set to one of the four agent names above.
+
+```json
+{"prompt": "I'd like to apply for a personal loan", "session_id": "optional"}
+```
+
+```json
+{"reply": "...", "session_id": "...", "agent": "credit"}
+```
+
 ## Customer chat
 
 `POST <chat-function-url>`

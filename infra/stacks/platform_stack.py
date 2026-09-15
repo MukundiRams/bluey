@@ -119,6 +119,7 @@ class BlueyPlatformStack(Stack):
         account_opening_role = execution_role("bluey-account-opening-proxy-role")
         credit_proxy_role = execution_role("bluey-credit-proxy-role")
         financial_advice_role = execution_role("bluey-financial-advice-proxy-role")
+        router_role = execution_role("bluey-router-proxy-role")
 
         # Banker API: sessions/customers/documents/applications + private document reads.
         data_stack.tables["sessions"].grant_read_write_data(banker_role)
@@ -143,7 +144,7 @@ class BlueyPlatformStack(Stack):
             data_stack.tables[key].grant_read_write_data(tool_role)
 
         # Harness proxies: session storage + Cognito token validation + AgentCore invocation.
-        for proxy_role in (chat_role, account_opening_role, credit_proxy_role, financial_advice_role):
+        for proxy_role in (chat_role, account_opening_role, credit_proxy_role, financial_advice_role, router_role):
             data_stack.tables["sessions"].grant_read_write_data(proxy_role)
             data_stack.tables["messages"].grant_read_write_data(proxy_role)
             data_stack.tables["applications"].grant_read_write_data(proxy_role)
@@ -151,6 +152,16 @@ class BlueyPlatformStack(Stack):
         account_opening_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         credit_proxy_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         financial_advice_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
+        router_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
+        # Router needs its own fast classifier model call, separate from the Harnesses' own model access.
+        router_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+            resources=[
+                f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/*",
+                f"arn:aws:bedrock:{self.region}::foundation-model/*",
+            ],
+        ))
+
         self.dynamodb_tool_fn = fn("bluey-dynamodb-tool", tool_role, timeout=30, code_path="lambda/dynamodb_tool")
         self.sessions_fn = fn("bluey-sessions", tool_role, timeout=3, code_path="lambda/dynamodb_tool")
         self.credit_fn = fn("bluey-credit-api", execution_role("bluey-credit-api-role"), timeout=3, code_path="lambda/credit_api")
@@ -162,6 +173,7 @@ class BlueyPlatformStack(Stack):
         self.account_opening_fn = fn("bluey-account-opening-proxy", account_opening_role, timeout=90)
         self.credit_proxy_fn = fn("bluey-credit-proxy", credit_proxy_role, timeout=90, code_path="lambda/bluey-credit-proxy")
         self.financial_advice_fn = fn("bluey-financial-advice-proxy", financial_advice_role, timeout=90)
+        self.router_fn = fn("bluey-router-proxy", router_role, timeout=90)
         self.banker_fn = fn("bluey-banker-api", banker_role, timeout=30)
         self.document_fn = fn("bluey-document-api", document_role, timeout=30)
 
@@ -201,6 +213,10 @@ class BlueyPlatformStack(Stack):
             cors=function_url_cors,
         )
         self.financial_advice_function_url = self.financial_advice_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            cors=function_url_cors,
+        )
+        self.router_function_url = self.router_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
             cors=function_url_cors,
         )
@@ -633,6 +649,16 @@ class BlueyPlatformStack(Stack):
             actions=["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeHarness"],
             resources=[f"{financial_advice_harness.attr_arn}*"],
         ))
+        # Router proxy fans out to whichever Harness it classifies the message into.
+        router_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeHarness"],
+            resources=[
+                f"{main_harness.attr_arn}*",
+                f"{account_harness.attr_arn}*",
+                f"{credit_harness.attr_arn}*",
+                f"{financial_advice_harness.attr_arn}*",
+            ],
+        ))
 
         # Now that Harnesses exist, wire their ARNs directly into the proxy
         # Lambdas — same-stack reference, no SSM indirection needed.
@@ -640,6 +666,10 @@ class BlueyPlatformStack(Stack):
         self.account_opening_fn.add_environment("HARNESS_ARN", account_harness.attr_arn)
         self.credit_proxy_fn.add_environment("HARNESS_ARN", credit_harness.attr_arn)
         self.financial_advice_fn.add_environment("HARNESS_ARN", financial_advice_harness.attr_arn)
+        self.router_fn.add_environment("MAIN_HARNESS_ARN", main_harness.attr_arn)
+        self.router_fn.add_environment("ACCOUNT_OPENING_HARNESS_ARN", account_harness.attr_arn)
+        self.router_fn.add_environment("CREDIT_HARNESS_ARN", credit_harness.attr_arn)
+        self.router_fn.add_environment("FINANCIAL_ADVICE_HARNESS_ARN", financial_advice_harness.attr_arn)
 
         self.gateways = {
             "main": main_gateway,
@@ -659,6 +689,7 @@ class BlueyPlatformStack(Stack):
         CfnOutput(self, "AccountOpeningFunctionUrl", value=self.account_opening_function_url.url)
         CfnOutput(self, "CreditFunctionUrl", value=self.credit_function_url.url)
         CfnOutput(self, "FinancialAdviceFunctionUrl", value=self.financial_advice_function_url.url)
+        CfnOutput(self, "RouterFunctionUrl", value=self.router_function_url.url)
         CfnOutput(self, "ReadonlyDataFunctionUrl", value=self.readonly_data_function_url.url)
         CfnOutput(self, "MainGatewayArnOutput", value=main_gateway.attr_gateway_arn)
         CfnOutput(self, "CreditGatewayArnOutput", value=credit_gateway.attr_gateway_arn)
