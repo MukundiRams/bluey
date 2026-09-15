@@ -23,4 +23,5 @@ resource_names:
     document_api: bluey-document-api
     credit_api: bluey-credit-api
     financial_advice_proxy: bluey-financial-advice-proxy
+    router_proxy: bluey-router-proxy
     dynamodb_tool: bluey-sessions

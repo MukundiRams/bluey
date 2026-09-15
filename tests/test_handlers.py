@@ -252,3 +252,89 @@ def test_transaction_chart_aggregates_all_accounts_for_customer_id(monkeypatch):
     assert result["summary"]["totalSpend"] == 150.0
 
 
+def _router_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("router_proxy", "lambda/bluey-router-proxy/handler.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_classify_intent_falls_back_to_default_on_bedrock_error(monkeypatch):
+    module = _router_module()
+
+    class FailingBedrock:
+        def converse(self, **kwargs):
+            raise RuntimeError("no network in tests")
+
+    monkeypatch.setattr(module, "bedrock_runtime", FailingBedrock())
+    assert module.classify_intent("anything") == module.DEFAULT_AGENT
+
+
+class _RouterFakeSessionsTable:
+    def __init__(self, item=None):
+        self.item = item or {}
+        self.updates = []
+
+    def get_item(self, Key):
+        return {"Item": self.item} if self.item else {}
+
+    def update_item(self, **kwargs):
+        self.updates.append(kwargs)
+        self.item.update({"routedAgent": kwargs["ExpressionAttributeValues"][":agent"]})
+
+
+def test_router_reuses_previously_routed_agent(monkeypatch):
+    module = _router_module()
+    monkeypatch.setattr(module, "verify_token", lambda event: "user-1")
+    monkeypatch.setattr(module, "HARNESS_ARNS", {**module.HARNESS_ARNS, "credit": "arn:aws:fake:credit"})
+
+    sessions = _RouterFakeSessionsTable({"sessionId": "sess-1", "routedAgent": "credit", "messages": []})
+    monkeypatch.setattr(module, "sessions_table", sessions)
+
+    called_arns = []
+
+    class FakeAgentCore:
+        def invoke_harness(self, harnessArn, **kwargs):
+            called_arns.append(harnessArn)
+            return {"stream": []}
+
+    monkeypatch.setattr(module, "agentcore_client", FakeAgentCore())
+
+    def _fail_classify(prompt):
+        raise AssertionError("should not reclassify once a session is already routed")
+
+    monkeypatch.setattr(module, "classify_intent", _fail_classify)
+
+    event = {
+        "headers": {"authorization": "Bearer token"},
+        "body": json.dumps({"prompt": "what's my rate now?", "session_id": "sess-1"}),
+    }
+    resp = module.lambda_handler(event, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["agent"] == "credit"
+    assert called_arns == ["arn:aws:fake:credit"]
+
+
+def test_router_honours_route_override(monkeypatch):
+    module = _router_module()
+    monkeypatch.setattr(module, "verify_token", lambda event: "user-1")
+    monkeypatch.setattr(module, "HARNESS_ARNS", {**module.HARNESS_ARNS, "financial-advice": "arn:aws:fake:fa"})
+
+    sessions = _RouterFakeSessionsTable({})
+    monkeypatch.setattr(module, "sessions_table", sessions)
+    monkeypatch.setattr(module, "agentcore_client", type("A", (), {"invoke_harness": staticmethod(lambda **kw: {"stream": []})})())
+
+    event = {
+        "headers": {"authorization": "Bearer token"},
+        "body": json.dumps({
+            "prompt": "help me budget",
+            "session_id": "sess-2",
+            "route_override": "financial-advice",
+        }),
+    }
+    resp = module.lambda_handler(event, None)
+    body = json.loads(resp["body"])
+    assert body["agent"] == "financial-advice"
+

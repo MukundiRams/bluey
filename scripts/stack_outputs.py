@@ -8,9 +8,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", default="dev")
     parser.add_argument("--region", default="us-east-1")
+    parser.add_argument("--profile", default=None)
     args = parser.parse_args()
 
-    client = boto3.client("cloudformation", region_name=args.region)
+    session = boto3.Session(profile_name=args.profile) if args.profile else boto3.Session()
+    client = session.client("cloudformation", region_name=args.region)
     # All 5 stacks — BlueyData and BlueyAuth were previously missing here,
     # which meant the Cognito User Pool ID / App Client ID (needed for .env
     # and the frontend contract) were never printed anywhere.

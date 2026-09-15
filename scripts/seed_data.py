@@ -11,6 +11,8 @@ data in the account. Use --dry-run to inspect the records before writing them.
 import argparse
 import sys
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
+import random
 
 import boto3
 
@@ -284,155 +286,130 @@ ACCOUNTS = [
 ]
 
 
-TRANSACTIONS = [
-    {
-        "accountId": "acc-001",
-        "date#transactionId": "2026-08-25#txn-001",
-        "description": "Salary deposit",
-        "amount": Decimal("18500.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-001",
-        "date#transactionId": "2026-08-27#txn-002",
-        "description": "Groceries - Checkers",
-        "amount": Decimal("-850.50"),
-        "category": "Shopping",
-    },
-    {
-        "accountId": "acc-001",
-        "date#transactionId": "2026-08-29#txn-003",
-        "description": "Electricity bill",
-        "amount": Decimal("-1200.00"),
-        "category": "Utilities",
-    },
-    {
-        "accountId": "acc-002",
-        "date#transactionId": "2026-08-26#txn-004",
-        "description": "Debit order - fibre",
-        "amount": Decimal("-799.00"),
-        "category": "Utilities",
-    },
-    {
-        "accountId": "acc-002",
-        "date#transactionId": "2026-08-28#txn-005",
-        "description": "Fuel - Engen",
-        "amount": Decimal("-650.00"),
-        "category": "Transport",
-    },
-    {
-        "accountId": "acc-002",
-        "date#transactionId": "2026-08-30#txn-006",
-        "description": "Payment received",
-        "amount": Decimal("1200.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-003",
-        "date#transactionId": "2026-08-15#txn-007",
-        "description": "Interest payment",
-        "amount": Decimal("450.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-003",
-        "date#transactionId": "2026-08-20#txn-008",
-        "description": "Fixed deposit renewal",
-        "amount": Decimal("-2500.00"),
-        "category": "Savings",
-    },
-    {
-        "accountId": "acc-003",
-        "date#transactionId": "2026-08-31#txn-009",
-        "description": "Interest payment",
-        "amount": Decimal("462.50"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-004",
-        "date#transactionId": "2026-08-22#txn-010",
-        "description": "Salary deposit",
-        "amount": Decimal("32000.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-004",
-        "date#transactionId": "2026-08-24#txn-011",
-        "description": "Online purchase - Takealot",
-        "amount": Decimal("-650.00"),
-        "category": "Shopping",
-    },
-    {
-        "accountId": "acc-004",
-        "date#transactionId": "2026-08-30#txn-012",
-        "description": "Restaurant - Cape Town",
-        "amount": Decimal("-480.00"),
-        "category": "Food",
-    },
-    {
-        "accountId": "acc-005",
-        "date#transactionId": "2026-08-21#txn-013",
-        "description": "Social grant deposit",
-        "amount": Decimal("4200.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-005",
-        "date#transactionId": "2026-08-23#txn-014",
-        "description": "Taxi fare",
-        "amount": Decimal("-180.00"),
-        "category": "Transport",
-    },
-    {
-        "accountId": "acc-005",
-        "date#transactionId": "2026-08-29#txn-015",
-        "description": "Mobile data",
-        "amount": Decimal("-299.00"),
-        "category": "Utilities",
-    },
-    {
-        "accountId": "acc-006",
-        "date#transactionId": "2026-08-20#txn-016",
-        "description": "Salary deposit",
-        "amount": Decimal("12000.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-006",
-        "date#transactionId": "2026-08-25#txn-017",
-        "description": "Rent payment",
-        "amount": Decimal("-6200.00"),
-        "category": "Housing",
-    },
-    {
-        "accountId": "acc-006",
-        "date#transactionId": "2026-08-28#txn-018",
-        "description": "Groceries - Pick n Pay",
-        "amount": Decimal("-740.00"),
-        "category": "Shopping",
-    },
-    {
-        "accountId": "acc-007",
-        "date#transactionId": "2026-08-19#txn-019",
-        "description": "Salary deposit",
-        "amount": Decimal("24500.00"),
-        "category": "Income",
-    },
-    {
-        "accountId": "acc-007",
-        "date#transactionId": "2026-08-23#txn-020",
-        "description": "Home loan instalment",
-        "amount": Decimal("-6800.00"),
-        "category": "Housing",
-    },
-    {
-        "accountId": "acc-007",
-        "date#transactionId": "2026-08-29#txn-021",
-        "description": "Medical aid debit order",
-        "amount": Decimal("-2100.00"),
-        "category": "Healthcare",
-    },
-]
+# Transactions are generated (not hand-listed) so every customer gets 30+ rows
+# spanning 3+ months with real times, without hand-typing hundreds of records.
+# The window is anchored to a fixed date so reruns stay deterministic.
+_TXN_END = datetime(2026, 9, 14, tzinfo=timezone.utc)
+_TXN_START = _TXN_END - timedelta(days=97)
+
+# (merchant names, (min amount, max amount)) per discretionary spend category.
+_DISCRETIONARY_CATALOGUE = {
+    "Shopping": (["Checkers", "Pick n Pay", "Woolworths", "Takealot", "Game"], (-950, -120)),
+    "Transport": (["Engen Fuel", "Uber", "Gautrain", "Sasol Garage"], (-450, -60)),
+    "Food": (["Restaurant - Nando's", "Mugg & Bean", "KFC", "Steers"], (-320, -70)),
+    "Entertainment": (["Ster-Kinekor", "Spotify subscription", "Netflix subscription"], (-250, -80)),
+    "Healthcare": (["Clicks Pharmacy", "Dischem"], (-500, -90)),
+    "Utilities": (["Mobile data - MTN", "Prepaid electricity"], (-400, -80)),
+}
+
+_txn_counter = 0
+
+
+def _next_txn_id():
+    global _txn_counter
+    _txn_counter += 1
+    return f"txn-{_txn_counter:04d}"
+
+
+def _make_txn(account_id, dt, description, amount, category):
+    return {
+        "accountId": account_id,
+        "date#transactionId": f"{dt.strftime('%Y-%m-%d')}#{_next_txn_id()}",
+        "time": dt.strftime("%H:%M:%S"),
+        "timestamp": dt.isoformat(),
+        "description": description,
+        "amount": Decimal(str(round(amount, 2))),
+        "category": category,
+    }
+
+
+def _recurring_monthly(account_id, rng, description, amount, category, day_of_month, hour_range=(7, 9)):
+    """One transaction near day_of_month for each calendar month touched by the seed window."""
+    txns = []
+    seen_months = set()
+    d = _TXN_START
+    while d <= _TXN_END:
+        month_key = (d.year, d.month)
+        if month_key not in seen_months:
+            seen_months.add(month_key)
+            occurrence = d.replace(day=min(day_of_month, 28), hour=rng.randint(*hour_range), minute=rng.randint(0, 59), second=rng.randint(0, 59))
+            if _TXN_START <= occurrence <= _TXN_END:
+                txns.append(_make_txn(account_id, occurrence, description, amount, category))
+        d += timedelta(days=1)
+    return txns
+
+
+def _discretionary_fill(account_id, rng, categories, target_count):
+    """Random day-to-day spending across the seed window until target_count is reached."""
+    txns = []
+    span_days = (_TXN_END - _TXN_START).days
+    while len(txns) < target_count:
+        category = rng.choice(categories)
+        merchants, (low, high) = _DISCRETIONARY_CATALOGUE[category]
+        dt = (_TXN_START + timedelta(days=rng.randint(0, span_days))).replace(
+            hour=rng.randint(7, 22), minute=rng.randint(0, 59), second=rng.randint(0, 59)
+        )
+        amount = rng.uniform(low, high)
+        txns.append(_make_txn(account_id, dt, f"{category} - {rng.choice(merchants)}", amount, category))
+    return txns
+
+
+def _fraud_burst(account_id, base_dt):
+    """Five card-not-present transactions in rapid succession — the pattern a
+    fraud-detection rule should flag: different merchants/countries within 5 minutes."""
+    entries = [
+        (0, "Card verification - Unknown Merchant (USD 1.00)", -18.50),
+        (48, "Online purchase - Electronics Store (Hong Kong)", -8420.00),
+        (117, "Online purchase - Gift Cards (Unknown Merchant)", -5200.00),
+        (203, "ATM withdrawal - Foreign ATM (Lagos, Nigeria)", -4000.00),
+        (289, "Online purchase - Electronics Store (Hong Kong)", -9990.00),
+    ]
+    return [
+        _make_txn(account_id, base_dt + timedelta(seconds=offset), description, amount, "Suspicious")
+        for offset, description, amount in entries
+    ]
+
+
+TRANSACTIONS = []
+
+# cust-001 Thabo Nkosi — acc-001 (Savings, salary) + acc-002 (Cheque, card spend + fraud burst)
+_rng_001 = random.Random("cust-001")
+TRANSACTIONS += _recurring_monthly("acc-001", _rng_001, "Salary deposit", 18500.00, "Income", 25, hour_range=(0, 1))
+TRANSACTIONS += _discretionary_fill("acc-001", _rng_001, ["Shopping", "Healthcare"], 12)
+TRANSACTIONS += _recurring_monthly("acc-002", _rng_001, "Debit order - fibre", -799.00, "Utilities", 26)
+TRANSACTIONS += _recurring_monthly("acc-002", _rng_001, "Electricity bill", -1200.00, "Utilities", 29)
+TRANSACTIONS += _discretionary_fill("acc-002", _rng_001, ["Transport", "Food", "Entertainment", "Shopping"], 15)
+# Fraud burst: 5 rapid, geographically implausible card transactions at 03:xx local time.
+TRANSACTIONS += _fraud_burst("acc-002", (_TXN_END - timedelta(days=4)).replace(hour=3, minute=14, second=2))
+
+# cust-002 Priya Singh — acc-003 (Fixed Deposit)
+_rng_002 = random.Random("cust-002")
+TRANSACTIONS += _recurring_monthly("acc-003", _rng_002, "Interest payment", 462.50, "Income", 31, hour_range=(0, 1))
+TRANSACTIONS += _recurring_monthly("acc-003", _rng_002, "Fixed deposit top-up", -2500.00, "Savings", 20)
+TRANSACTIONS += _discretionary_fill("acc-003", _rng_002, ["Shopping", "Entertainment"], 24)
+
+# cust-003 Johan van der Merwe — acc-004 (Savings)
+_rng_003 = random.Random("cust-003")
+TRANSACTIONS += _recurring_monthly("acc-004", _rng_003, "Salary deposit", 32000.00, "Income", 22, hour_range=(0, 1))
+TRANSACTIONS += _discretionary_fill("acc-004", _rng_003, ["Shopping", "Transport", "Food"], 27)
+
+# cust-004 Zara Abrahams — acc-005 (Cheque)
+_rng_004 = random.Random("cust-004")
+TRANSACTIONS += _recurring_monthly("acc-005", _rng_004, "Social grant deposit", 4200.00, "Income", 21, hour_range=(0, 1))
+TRANSACTIONS += _discretionary_fill("acc-005", _rng_004, ["Transport", "Utilities", "Food"], 27)
+
+# cust-005 Thabo Molefe — acc-006 (Savings)
+_rng_005 = random.Random("cust-005")
+TRANSACTIONS += _recurring_monthly("acc-006", _rng_005, "Salary deposit", 12000.00, "Income", 20, hour_range=(0, 1))
+TRANSACTIONS += _recurring_monthly("acc-006", _rng_005, "Rent payment", -6200.00, "Housing", 25)
+TRANSACTIONS += _discretionary_fill("acc-006", _rng_005, ["Shopping", "Food"], 25)
+
+# cust-006 Lerato Mokoena — acc-007 (Cheque)
+_rng_006 = random.Random("cust-006")
+TRANSACTIONS += _recurring_monthly("acc-007", _rng_006, "Salary deposit", 24500.00, "Income", 19, hour_range=(0, 1))
+TRANSACTIONS += _recurring_monthly("acc-007", _rng_006, "Home loan instalment", -6800.00, "Housing", 23)
+TRANSACTIONS += _recurring_monthly("acc-007", _rng_006, "Medical aid debit order", -2100.00, "Healthcare", 29)
+TRANSACTIONS += _discretionary_fill("acc-007", _rng_006, ["Shopping", "Entertainment"], 23)
 
 
 def iso(day, hour):

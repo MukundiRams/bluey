@@ -30,6 +30,7 @@ The final documented split is:
 
 | Service | Entry point | Auth |
 | --- | --- | --- |
+| router proxy | Lambda Function URL | manual Cognito access-token validation |
 | chat proxy | Lambda Function URL | manual Cognito access-token validation |
 | account-opening proxy | Lambda Function URL | manual Cognito access-token validation |
 | banker API | HTTP API | Cognito JWT + Bankers group |
@@ -38,3 +39,7 @@ The final documented split is:
 ## 7. Data ownership
 
 The repository treats infrastructure as code, but demo records as data. Tables should be recreated by CDK/CloudFormation, while seeded data is loaded explicitly by a separate script so moving to the hackathon account never silently copies arbitrary source-account data.
+
+## 8. Routing
+
+Each Harness (main, credit, account-opening, financial-advice) has its own proxy Lambda and Function URL, so historically the frontend had to already know which endpoint matched a customer's intent. `bluey-router-proxy` removes that requirement: it classifies the customer's message with a small, fast Bedrock model call and forwards the request to the matching Harness, exposing one Function URL frontends can call unconditionally. Routing decisions are cached on the session item (`routedAgent`) after the first message so a session's later turns keep talking to the same Harness — each Harness owns its own AgentCore-managed conversation memory, so hopping between Harnesses mid-session would otherwise drop context. The four original endpoints are unchanged and keep working directly for callers that already know the intent.
