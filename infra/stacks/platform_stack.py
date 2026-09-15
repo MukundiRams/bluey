@@ -25,6 +25,7 @@ via `HARNESS_ARN = os.environ.get("HARNESS_ARN", "")`, so no Lambda
 code changes were needed for this simplification.
 """
 
+import os
 from pathlib import Path
 
 from aws_cdk import (
@@ -42,6 +43,17 @@ from constructs import Construct
 
 
 HARNESS_IMAGE = "public.ecr.aws/i0n3d3i5/harness-us-east-1:latest"
+HARNESS_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+HARNESS_REGION = "us-east-1"
+
+# The Gateway API rejects an in-place searchType change while targets are
+# attached ("Search type cannot be updated ... for a gateway with 1 or more
+# targets"). First set BLUEY_ATTACH_TARGETS=0 and
+# BLUEY_GATEWAY_SEARCH_TYPE=UNSET to detach targets without changing the
+# Gateway. Then set BLUEY_GATEWAY_SEARCH_TYPE=SEMANTIC, and finally reattach
+# targets in a third deployment.
+ATTACH_GATEWAY_TARGETS = os.environ.get("BLUEY_ATTACH_TARGETS", "1") != "0"
+GATEWAY_SEARCH_TYPE = os.environ.get("BLUEY_GATEWAY_SEARCH_TYPE", "SEMANTIC")
 
 
 def _policy(actions, resources, sid):
@@ -51,6 +63,8 @@ def _policy(actions, resources, sid):
 class BlueyPlatformStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, *, stage: str, data_stack, auth_stack, knowledge_stack, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        if self.region != HARNESS_REGION:
+            raise ValueError(f"Bluey AgentCore Harnesses must be deployed in {HARNESS_REGION}, not {self.region}")
 
         # ---------------------------------------------------------------
         # Lambdas + IAM roles (formerly api_stack.py)
@@ -72,7 +86,7 @@ class BlueyPlatformStack(Stack):
             return lambda_.Function(
                 self,
                 name.replace("-", ""),
-                function_name=name,
+                function_name=f"{name}-{stage}",
                 runtime=lambda_.Runtime.PYTHON_3_12,
                 handler="handler.lambda_handler",
                 code=lambda_.Code.from_asset(str(Path(__file__).parents[2] / (code_path or f"lambda/{name}"))),
@@ -89,6 +103,8 @@ class BlueyPlatformStack(Stack):
                     "TRANSACTIONS_TABLE": data_stack.tables["transactions"].table_name,
                     "CREDIT_TABLE": data_stack.tables["credit"].table_name,
                     "BANKERS_TABLE": data_stack.tables["bankers"].table_name,
+                    "APPLICATIONS_TABLE": data_stack.tables["applications"].table_name,
+                    "MESSAGES_TABLE": data_stack.tables["messages"].table_name,
                     # Set directly below once the Harness resources exist —
                     # left as "" here only as a placeholder default.
                     "HARNESS_ARN": "",
@@ -104,33 +120,34 @@ class BlueyPlatformStack(Stack):
         credit_proxy_role = execution_role("bluey-credit-proxy-role")
         financial_advice_role = execution_role("bluey-financial-advice-proxy-role")
 
-        # Banker API: sessions/customers/documents + private document reads.
+        # Banker API: sessions/customers/documents/applications + private document reads.
         data_stack.tables["sessions"].grant_read_write_data(banker_role)
         data_stack.tables["customers"].grant_read_data(banker_role)
         data_stack.tables["documents"].grant_read_data(banker_role)
+        data_stack.tables["applications"].grant_read_write_data(banker_role)
+        data_stack.tables["accounts"].grant_read_data(banker_role)
+        data_stack.tables["transactions"].grant_read_data(banker_role)
+        data_stack.tables["credit"].grant_read_data(banker_role)
+        data_stack.tables["bankers"].grant_read_data(banker_role)
+        data_stack.tables["messages"].grant_read_data(banker_role)
+        data_stack.tables["read_state"].grant_read_write_data(banker_role)
         data_stack.documents_bucket.grant_read(banker_role)
 
         # Document API: private upload/read + metadata and review flag.
         data_stack.documents_bucket.grant_read_write(document_role)
         data_stack.tables["documents"].grant_read_write_data(document_role)
         data_stack.tables["sessions"].grant_write_data(document_role)
+        data_stack.tables["applications"].grant_read_write_data(document_role)
 
-        # Gateway tool role: the same role is used by the session and credit
-        # targets, but each Gateway below receives only the targets it needs.
-        # "bankers" is required — lookup_customer's general-banker assignment
-        # reads/writes bluey-bankers directly. "messages" and "applications"
-        # are intentionally excluded: those tables exist (observed in the
-        # live account) but nothing in the current handler code reads or
-        # writes them yet — see docs/migration-checklist.md before wiring
-        # them in.
-        for key in ("sessions", "customers", "accounts", "transactions", "documents", "credit", "bankers"):
+        # Gateway tool role: access across all tables.
+        for key in ("sessions", "customers", "accounts", "transactions", "documents", "credit", "bankers", "applications", "messages"):
             data_stack.tables[key].grant_read_write_data(tool_role)
 
         # Harness proxies: session storage + Cognito token validation + AgentCore invocation.
-        data_stack.tables["sessions"].grant_read_write_data(chat_role)
-        data_stack.tables["sessions"].grant_read_write_data(account_opening_role)
-        data_stack.tables["sessions"].grant_read_write_data(credit_proxy_role)
-        data_stack.tables["sessions"].grant_read_write_data(financial_advice_role)
+        for proxy_role in (chat_role, account_opening_role, credit_proxy_role, financial_advice_role):
+            data_stack.tables["sessions"].grant_read_write_data(proxy_role)
+            data_stack.tables["messages"].grant_read_write_data(proxy_role)
+            data_stack.tables["applications"].grant_read_write_data(proxy_role)
         chat_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         account_opening_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
         credit_proxy_role.add_to_policy(iam.PolicyStatement(actions=["cognito-idp:GetUser"], resources=["*"]))
@@ -147,6 +164,7 @@ class BlueyPlatformStack(Stack):
         self.credit_proxy_fn = fn("bluey-credit-proxy", credit_proxy_role, timeout=90, code_path="lambda/bluey-credit-proxy")
         self.financial_advice_fn = fn("bluey-financial-advice-proxy", financial_advice_role, timeout=90)
         self.banker_fn = fn("bluey-banker-api", banker_role, timeout=30)
+        self.banker_fn.add_environment("READ_STATE_TABLE", data_stack.tables["read_state"].table_name)
         self.document_fn = fn("bluey-document-api", document_role, timeout=30)
 
         # Harness-invoking Lambdas deliberately use Function URLs because the
@@ -177,7 +195,7 @@ class BlueyPlatformStack(Stack):
         api = apigw.HttpApi(
             self,
             "BlueyHttpApi",
-            api_name="bluey-api",
+            api_name=f"bluey-api-{stage}",
             cors_preflight=apigw.CorsPreflightOptions(
                 allow_origins=["*"],
                 allow_headers=["authorization", "content-type"],
@@ -218,7 +236,7 @@ class BlueyPlatformStack(Stack):
             {"name": "get_transactions", "description": "Retrieve recent transactions for a specific account", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["accountId"]}},
             {"name": "check_documents_status", "description": "Check whether required documents are uploaded", "inputSchema": {"type": "object", "properties": {"sessionId": {"type": "string"}}, "required": ["sessionId"]}},
             {"name": "save_applicant_info", "description": "Save applicant name, phone and email for banker review", "inputSchema": {"type": "object", "properties": {"phone": {"type": "string"}, "name": {"type": "string"}, "sessionId": {"type": "string"}, "email": {"type": "string"}}, "required": ["sessionId", "name", "phone", "email"]}},
-            {"name": "get_transaction_chart", "description": "Generate spending-by-category chart data", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "sessionId": {"type": "string"}}, "required": ["accountId", "sessionId"]}},
+            {"name": "get_transaction_chart", "description": "Generate a detailed spending breakdown (bar, pie, and time-series chart data plus a numeric summary) for one account or, given a customerId, aggregated across all of a customer's accounts", "inputSchema": {"type": "object", "properties": {"accountId": {"type": "string"}, "customerId": {"type": "string"}, "sessionId": {"type": "string"}}, "required": ["sessionId"]}},
         ]
         main_sessions_schema = [
             tool for tool in sessions_schema
@@ -264,7 +282,16 @@ class BlueyPlatformStack(Stack):
                 authorizer_type="AWS_IAM",
                 role_arn=role.role_arn,
                 protocol_type="MCP",
-                protocol_configuration={"mcp": {"supportedVersions": ["2025-11-25", "2026-07-28"]}},
+                protocol_configuration={
+                    "mcp": {
+                        "supportedVersions": ["2025-11-25", "2026-07-28"],
+                        **(
+                            {"searchType": GATEWAY_SEARCH_TYPE}
+                            if GATEWAY_SEARCH_TYPE != "UNSET"
+                            else {}
+                        ),
+                    }
+                },
                 exception_level="DEBUG",
             )
             return gateway, role
@@ -298,7 +325,20 @@ class BlueyPlatformStack(Stack):
             [knowledge_stack.main_kb.attr_knowledge_base_arn],
         )
 
-        def lambda_target(logical_id, name, function, schema, gateway):
+        def _depend_on_role_policy(target, role):
+            # AgentCore validates the gateway execution role's access to the
+            # target resource at target-creation time. The role's inline
+            # policy (its DefaultPolicy) must therefore exist and have
+            # propagated in IAM before the target is created, otherwise the
+            # target fails to stabilize with "Insufficient permissions to
+            # validate the specified resource". CfnGatewayTarget only depends
+            # on the gateway by default, not on the role policy, so add that
+            # dependency explicitly here.
+            default_policy = role.node.try_find_child("DefaultPolicy")
+            if default_policy is not None:
+                target.add_dependency(default_policy.node.default_child)
+
+        def lambda_target(logical_id, name, function, schema, gateway, role, lambda_permission=None):
             target = bedrockagentcore.CfnGatewayTarget(
                 self,
                 logical_id,
@@ -308,68 +348,96 @@ class BlueyPlatformStack(Stack):
                 target_configuration={"mcp": {"lambda": {"lambdaArn": function.function_arn, "toolSchema": {"inlinePayload": schema}}}},
             )
             target.add_dependency(gateway)
+            _depend_on_role_policy(target, role)
+            # The Lambda resource-based permission granting the gateway
+            # principal lambda:InvokeFunction must also exist before the
+            # target validates, or validation sees no invoke permission.
+            if lambda_permission is not None:
+                target.add_dependency(lambda_permission)
             return target
 
-        self.sessions_fn.add_permission(
+        main_gateway_permission = self.sessions_fn.add_permission(
             "AllowMainGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=main_gateway.attr_gateway_arn,
         )
-        self.sessions_fn.add_permission(
+        account_opening_gateway_permission = self.sessions_fn.add_permission(
             "AllowAccountOpeningGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=account_opening_gateway.attr_gateway_arn,
         )
-        self.sessions_fn.add_permission(
+        financial_advice_gateway_permission = self.sessions_fn.add_permission(
             "AllowFinancialAdviceGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=financial_advice_gateway.attr_gateway_arn,
         )
-        self.credit_fn.add_permission(
+        credit_gateway_permission = self.credit_fn.add_permission(
             "AllowCreditGateway",
             principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             action="lambda:InvokeFunction",
             source_arn=credit_gateway.attr_gateway_arn,
         )
 
-        lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway)
-        lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway)
-        lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway)
-        lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway)
+        if ATTACH_GATEWAY_TARGETS:
+            lambda_target("MainSessionsTarget", "dynamodb-bluey-sessions-tool", self.sessions_fn, main_sessions_schema, main_gateway, main_gateway_role, main_gateway_permission)
+            lambda_target("AccountOpeningSessionsTarget", "dynamodb-bluey-account-opening-tool", self.sessions_fn, account_opening_schema, account_opening_gateway, account_opening_gateway_role, account_opening_gateway_permission)
+            lambda_target("CreditTarget", "bluey-credit-tool", self.credit_fn, credit_schema, credit_gateway, credit_gateway_role, credit_gateway_permission)
+            lambda_target("FinancialAdviceTarget", "dynamodb-bluey-financial-advice-tool", self.sessions_fn, financial_advice_schema, financial_advice_gateway, financial_advice_gateway_role, financial_advice_gateway_permission)
 
-        def kb_target(logical_id, name, kb_id, gateway, retrieval=False):
+        def kb_target(logical_id, name, kb_id, gateway, role):
+            # numberOfResults is intentionally omitted here: the connector was
+            # still exposing it to the agent as an overridable parameter (sent
+            # back as a string), which the Bedrock Retrieve API rejects with a
+            # numberOfResults-must-be-integer validation error. Leaving it out
+            # lets the Retrieve API fall back to its own default.
             params = {"knowledgeBaseId": kb_id}
-            if retrieval:
-                params = {"retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": 5}}, "knowledgeBaseId": kb_id}
             target = bedrockagentcore.CfnGatewayTarget(
                 self,
                 logical_id,
                 gateway_identifier=gateway.attr_gateway_identifier,
                 name=name,
                 credential_provider_configurations=[{"credentialProviderType": "GATEWAY_IAM_ROLE"}],
-                target_configuration={"mcp": {"connector": {"source": {"connectorId": "bedrock-knowledge-bases", "version": "1.0.0"}, "configurations": [{"name": "Retrieve", "parameterValues": params}]}}},
+                target_configuration={"mcp": {"connector": {"source": {"connectorId": "bedrock-knowledge-bases"}, "configurations": [{
+                    "name": "Retrieve",
+                    "description": "Search the knowledge base for relevant documents.",
+                    "parameterValues": params,
+                    "parameterOverrides": [
+                        {
+                            "path": "$.retrievalQuery.text",
+                            "description": "The search query string, e.g. {\"retrievalQuery\": {\"text\": \"your query\"}}.",
+                            "visible": True
+                        }
+                    ],
+                }]}}},
             )
+
             target.add_dependency(gateway)
+            # Same IAM-propagation ordering requirement as the Lambda targets:
+            # the gateway role must be able to read the Knowledge Base before
+            # AgentCore validates this target.
+            _depend_on_role_policy(target, role)
             return target
 
-        kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, retrieval=True)
-        kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway)
-        kb_target(
-            "AccountOpeningKnowledgeTarget",
-            "bluey-kb-account-opening",
-            knowledge_stack.account_opening_kb.attr_knowledge_base_id,
-            account_opening_gateway,
-        )
-        kb_target(
-            "FinancialAdviceKnowledgeTarget",
-            "bluey-kb-financial-advice",
-            knowledge_stack.main_kb.attr_knowledge_base_id,
-            financial_advice_gateway,
-            retrieval=True,
-        )
+        if ATTACH_GATEWAY_TARGETS:
+            kb_target("StandardBankKnowledgeTarget", "bluey-kb-standard-bank", knowledge_stack.main_kb.attr_knowledge_base_id, main_gateway, main_gateway_role)
+            kb_target("CreditKnowledgeTarget", "bluey-kb-credit", knowledge_stack.credit_kb.attr_knowledge_base_id, credit_gateway, credit_gateway_role)
+            kb_target(
+                "AccountOpeningKnowledgeTarget",
+                "bluey-kb-account-opening",
+                knowledge_stack.account_opening_kb.attr_knowledge_base_id,
+                account_opening_gateway,
+                account_opening_gateway_role,
+            )
+            kb_target(
+                "FinancialAdviceKnowledgeTarget",
+                "bluey-kb-financial-advice",
+                knowledge_stack.main_kb.attr_knowledge_base_id,
+                financial_advice_gateway,
+                financial_advice_gateway_role,
+            )
 
         prompts = {
             "main": (Path(__file__).parents[2] / "config/prompts/main.txt").read_text(encoding="utf-8"),
@@ -386,7 +454,68 @@ class BlueyPlatformStack(Stack):
                 assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             )
             role.add_to_policy(
+                _policy(
+                    [
+                        "ecr-public:GetAuthorizationToken",
+                        "ecr-public:BatchCheckLayerAvailability",
+                        "ecr-public:GetDownloadUrlForLayer",
+                        "ecr-public:BatchGetImage",
+                    ],
+                    ["*"],
+                    "PullHarnessImage",
+                )
+            )
+            role.add_to_policy(
+                _policy(
+                    [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents",
+                    ],
+                    [f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock-agentcore/runtimes/*"],
+                    "WriteHarnessLogs",
+                )
+            )
+            role.add_to_policy(
+                _policy(
+                    [
+                        "bedrock:InvokeModel",
+                        "bedrock:InvokeModelWithResponseStream",
+                    ],
+                    [
+                        f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/*",
+                        f"arn:aws:bedrock:{self.region}::foundation-model/*",
+                        f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                        "arn:aws:bedrock:::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    ],
+                    "InvokeHarnessModel",
+                )
+            )
+            role.add_to_policy(
                 _policy(["bedrock-agentcore:InvokeGateway"], [gateway.attr_gateway_arn], "InvokeAssignedGateway")
+            )
+            # Each harness is created with a managedMemoryConfiguration, so at
+            # runtime it reads and writes its own AgentCore memory. Without
+            # these actions the harness fails with AccessDeniedException on
+            # bedrock-agentcore:ListEvents (and the related event actions).
+            # The memory resource is created by the harness itself, so scope
+            # to this account's agentcore memory resources rather than a
+            # specific ARN (which would be a circular reference).
+            role.add_to_policy(
+                _policy(
+                    [
+                        "bedrock-agentcore:ListEvents",
+                        "bedrock-agentcore:GetEvent",
+                        "bedrock-agentcore:CreateEvent",
+                        "bedrock-agentcore:ListSessions",
+                        "bedrock-agentcore:RetrieveMemoryRecords",
+                        "bedrock-agentcore:GetMemoryRecord",
+                        "bedrock-agentcore:ListMemoryRecords",
+                    ],
+                    [f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:memory/*"],
+                    "AccessHarnessMemory",
+                )
             )
             return role
 
@@ -449,22 +578,29 @@ class BlueyPlatformStack(Stack):
 
         main_harness = harness(
             "MainHarness", f"bluey_main_{stage}", prompts["main"], runtimes["main"],
-            "global.anthropic.claude-sonnet-4-5-20250929-v1:0", main_harness_role, main_gateway,
+            HARNESS_MODEL_ID, main_harness_role, main_gateway,
         )
         credit_harness = harness(
             "CreditHarness", f"bluey_credit_{stage}", prompts["credit"], runtimes["credit"],
-            "us.anthropic.claude-sonnet-4-5-20250929-v1:0", credit_harness_role, credit_gateway,
+            HARNESS_MODEL_ID, credit_harness_role, credit_gateway,
         )
         account_harness = harness(
             "AccountOpeningHarness", f"bluey_account_opening_{stage}", prompts["account-opening"],
-            runtimes["account-opening"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            runtimes["account-opening"], HARNESS_MODEL_ID,
             account_opening_harness_role, account_opening_gateway,
         )
         financial_advice_harness = harness(
             "FinancialAdviceHarness", f"bluey_financial_advice_{stage}", prompts["financial-advice"],
-            runtimes["financial-advice"], "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            runtimes["financial-advice"], HARNESS_MODEL_ID,
             financial_advice_harness_role, financial_advice_gateway,
         )
+
+        # AgentCore provisions managed memory in DynamoDB while each Harness
+        # is created. Serializing creation avoids service-side transaction
+        # conflicts when multiple Harnesses provision memory at once.
+        credit_harness.add_dependency(main_harness)
+        account_harness.add_dependency(credit_harness)
+        financial_advice_harness.add_dependency(account_harness)
 
         # Harness invocation checks a runtime-endpoint subresource, so the
         # generated harness ARN must include a trailing wildcard.

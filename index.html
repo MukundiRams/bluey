@@ -3,58 +3,351 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Standard Bank | Banker Review</title>
+  <title>Standard Bank | Banker Review & Applications Portal</title>
   <style>
-    :root { --ink:#102a43; --muted:#627d98; --line:#d9e2ec; --paper:#fff; --wash:#f4f7f9; --teal:#007d8a; --green:#19704a; --red:#b83a3a; --shadow:0 16px 40px rgba(16,42,67,.09); }
+    :root { --ink:#102a43; --muted:#627d98; --line:#d9e2ec; --paper:#fff; --wash:#f4f7f9; --teal:#007d8a; --green:#19704a; --red:#b83a3a; --blue:#0c66a0; --shadow:0 16px 40px rgba(16,42,67,.09); }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 90% 0,#dceff0 0,transparent 34%),var(--wash); font:15px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    header { background:#092f4f; color:white; padding:28px max(24px,calc((100vw - 1180px)/2)); display:flex; justify-content:space-between; gap:20px; align-items:end; }
-    header h1 { margin:0; font-size:clamp(25px,4vw,38px); letter-spacing:-.03em; } header p { margin:5px 0 0; color:#b8d6dc; }
-    .shell { max-width:1180px; margin:26px auto; padding:0 20px 48px; }
+    header { background:#092f4f; color:white; padding:24px max(24px,calc((100vw - 1200px)/2)); display:flex; justify-content:space-between; gap:20px; align-items:end; }
+    header h1 { margin:0; font-size:clamp(22px,3.5vw,34px); letter-spacing:-.03em; } header p { margin:4px 0 0; color:#b8d6dc; font-size:14px; }
+    .shell { max-width:1200px; margin:24px auto; padding:0 20px 48px; }
     .setup,.toolbar,.panel { background:var(--paper); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
-    .setup { padding:18px; display:grid; grid-template-columns:1fr 1.5fr auto; gap:12px; align-items:end; margin-bottom:22px; }
+    .setup { padding:18px; display:grid; grid-template-columns:1fr 1.5fr auto; gap:12px; align-items:end; margin-bottom:20px; }
     label { display:grid; gap:6px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
     input { width:100%; border:1px solid #bcccdc; border-radius:7px; padding:11px 12px; color:var(--ink); background:white; font:inherit; }
     button { border:0; border-radius:7px; padding:11px 15px; color:white; background:var(--teal); cursor:pointer; font:700 14px inherit; }
     button:hover { filter:brightness(.94); } button:disabled { opacity:.5; cursor:wait; }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; margin-bottom:14px; }
-    .status { color:var(--muted); } .status.error { color:var(--red); }
-    .grid { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(0,1.5fr); gap:18px; align-items:start; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; margin-bottom:14px; flex-wrap:wrap; }
+    .status { color:var(--muted); font-size:13px; } .status.error { color:var(--red); font-weight:600; }
+    .grid { display:grid; grid-template-columns:minmax(280px,.85fr) minmax(0,1.45fr); gap:18px; align-items:start; }
     .list { display:grid; gap:10px; }
-    .review { background:white; border:1px solid var(--line); border-left:4px solid var(--teal); border-radius:9px; padding:14px; text-align:left; cursor:pointer; box-shadow:0 5px 16px rgba(16,42,67,.05); }
-    .review.selected { border-color:var(--teal); background:#f0fbfb; } .review strong { display:block; font-size:16px; } .review small { display:block; color:var(--muted); }
-    .panel { padding:22px; min-height:400px; } .panel h2 { margin:0 0 4px; } .subtle { color:var(--muted); margin-top:0; }
-    .section { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; } .section h3 { margin:0 0 10px; font-size:14px; }
-    .messages { display:grid; gap:8px; max-height:310px; overflow:auto; } .message { padding:9px 12px; border-radius:8px; background:#eef2f5; white-space:pre-wrap; } .message.user { background:#e2f2f2; }
-    .docs { display:grid; gap:8px; } .doc { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:9px 0; border-bottom:1px solid #edf1f4; }
-    .doc a { color:var(--teal); font-weight:700; } .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; } .approve { background:var(--green); } .reject { background:var(--red); } .ghost { background:#829ab1; }
-    .empty { color:var(--muted); text-align:center; padding:36px 12px; border:1px dashed #bcccdc; border-radius:9px; }
+    .review { background:white; border:1px solid var(--line); border-left:4px solid var(--teal); border-radius:9px; padding:14px; text-align:left; cursor:pointer; box-shadow:0 5px 16px rgba(16,42,67,.05); transition:all .15s ease; }
+    .review:hover { transform:translateY(-1px); box-shadow:0 8px 20px rgba(16,42,67,.08); }
+    .review.selected { border-color:var(--teal); background:#f0fbfb; } 
+    .review strong { display:block; font-size:15px; margin-bottom:2px; } 
+    .review small { display:block; color:var(--muted); font-size:12px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; text-transform:uppercase; margin-top:6px; background:#e2f2f2; color:var(--teal); }
+    .badge.pending { background:#fff3cd; color:#856404; }
+    .badge.category { background:#e7eefc; color:var(--blue); margin-left:6px; }
+    .review.unread { border-left-color:var(--blue); background:#f5f9ff; }
+    .review.unread strong::after { content:" • NEW"; color:var(--blue); font-size:11px; font-weight:700; }
+    .mark-read { display:inline-block; margin-top:8px; padding:4px 10px; border-radius:6px; background:#829ab1; color:white; font:700 12px inherit; border:0; cursor:pointer; }
+    .mark-read:hover { filter:brightness(.94); }
+    .notice { border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin-bottom:14px; font-size:14px; font-weight:600; box-shadow:var(--shadow); }
+    .notice.has-unread { background:#e7eefc; border-color:#c3d5f7; color:var(--blue); }
+    .notice.all-clear { background:#e6f5ee; border-color:#b8e0cb; color:var(--green); }
+    .panel { padding:24px; min-height:450px; } .panel h2 { margin:0 0 4px; font-size:22px; } .subtle { color:var(--muted); margin-top:0; font-size:13px; }
+    .section { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; } .section h3 { margin:0 0 10px; font-size:14px; color:var(--ink); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+    .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; background:var(--wash); padding:12px; border-radius:8px; margin-bottom:12px; }
+    .info-item { font-size:13px; } .info-item label { font-size:10px; color:var(--muted); text-transform:uppercase; margin-bottom:2px; } .info-item span { font-weight:600; color:var(--ink); }
+    .messages { display:grid; gap:8px; max-height:260px; overflow:auto; padding-right:4px; } .message { padding:9px 12px; border-radius:8px; background:#eef2f5; white-space:pre-wrap; font-size:13px; } .message.user { background:#e2f2f2; }
+    .docs { display:grid; gap:8px; } 
+    .doc { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:10px 12px; background:var(--wash); border-radius:8px; border:1px solid var(--line); font-size:13px; }
+    .doc a.view-btn { color:white; background:var(--teal); text-decoration:none; padding:5px 12px; border-radius:5px; font-weight:700; font-size:12px; display:inline-flex; align-items:center; gap:4px; }
+    .doc a.view-btn:hover { filter:brightness(.9); }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; padding-top:16px; border-top:1px solid var(--line); } 
+    .approve { background:var(--green); } .reject { background:var(--red); } .ghost { background:#829ab1; }
+    .empty { color:var(--muted); text-align:center; padding:36px 12px; border:1px dashed #bcccdc; border-radius:9px; font-size:14px; }
     @media (max-width:760px) { header { display:block; } .setup,.grid { grid-template-columns:1fr; } .toolbar { align-items:stretch; flex-direction:column; } }
   </style>
 </head>
 <body>
-  <header><div><h1>Banker Review</h1><p>Standard Bank account-opening queue</p></div><div id="identity">Not connected</div></header>
+  <header>
+    <div>
+      <h1>Banker Review & Applications Portal</h1>
+      <p>Standard Bank — Customer Onboarding, KYC Documents & Applications Management</p>
+    </div>
+    <div id="identity" style="font-size:13px; color:#b8d6dc;">Not connected</div>
+  </header>
   <main class="shell">
     <section class="setup">
       <label>Banker API URL<input id="apiUrl" placeholder="https://...execute-api.../banker"></label>
-      <label>Cognito ID token<input id="token" type="password" placeholder="Paste a Cognito ID token"></label>
+      <label>Cognito ID token<input id="token" type="password" placeholder="Paste a Cognito ID token (with Bankers group)"></label>
       <button id="connect">Connect</button>
     </section>
-    <section class="toolbar"><strong id="count">No reviews loaded</strong><span id="status" class="status">Enter the deployed API URL and banker ID token.</span><button id="refresh" class="ghost">Refresh</button></section>
-    <div class="grid"><section id="list" class="list"><div class="empty">Connect to see pending reviews.</div></section><section id="detail" class="panel"><div class="empty">Select a review to inspect its conversation and documents.</div></section></div>
+    <section class="toolbar">
+      <strong id="count">No reviews loaded</strong>
+      <span id="status" class="status">Enter the deployed API URL and banker ID token.</span>
+      <button id="refresh" class="ghost">Refresh</button>
+    </section>
+    <div id="notice" class="notice" hidden></div>
+    <div class="grid">
+      <section id="list" class="list">
+        <div class="empty">Connect to see pending reviews and customer applications.</div>
+      </section>
+      <section id="detail" class="panel">
+        <div class="empty">Select an application or review to inspect customer details, KYC documents, and chat history.</div>
+      </section>
+    </div>
   </main>
   <script>
-    const apiInput = document.querySelector('#apiUrl'); const tokenInput = document.querySelector('#token'); const statusEl = document.querySelector('#status'); const listEl = document.querySelector('#list'); const detailEl = document.querySelector('#detail'); const countEl = document.querySelector('#count');
+    const apiInput = document.querySelector('#apiUrl');
+    const tokenInput = document.querySelector('#token');
+    const statusEl = document.querySelector('#status');
+    const listEl = document.querySelector('#list');
+    const detailEl = document.querySelector('#detail');
+    const countEl = document.querySelector('#count');
+    const identityEl = document.querySelector('#identity');
+    const noticeEl = document.querySelector('#notice');
+
+    const CATEGORY_LABELS = {
+      account_opening: 'Account Opening',
+      credit_application: 'Credit Application',
+      pre_visit_enquiry: 'Pre-Visit Enquiry',
+      existing_customer_servicing: 'Existing Customer',
+      unassigned_fallback: 'General Enquiry',
+    };
+
     let selectedSession = null;
-    apiInput.value = localStorage.getItem('bluey.bankerApiUrl') || ''; tokenInput.value = localStorage.getItem('bluey.bankerToken') || '';
-    function setStatus(text, error = false) { statusEl.textContent = text; statusEl.className = `status${error ? ' error' : ''}`; }
-    function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-    function config() { const api = apiInput.value.trim().replace(/\/$/, ''); const token = tokenInput.value.trim(); if (!api || !token) throw new Error('Enter both the Banker API URL and Cognito ID token.'); localStorage.setItem('bluey.bankerApiUrl', api); localStorage.setItem('bluey.bankerToken', token); return { api, token }; }
-    async function request(path = '', options = {}) { const { api, token } = config(); const response = await fetch(`${api}${path}`, { ...options, headers: { Authorization:`Bearer ${token}`, 'Content-Type':'application/json', ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`); return data; }
-    async function loadList() { try { setStatus('Loading reviews...'); const data = await request('?action=list'); const sessions = data.sessions || []; countEl.textContent = `${sessions.length} pending review${sessions.length === 1 ? '' : 's'}`; listEl.innerHTML = sessions.length ? sessions.map(s => `<button class="review ${s.sessionId === selectedSession ? 'selected' : ''}" data-session="${escapeHtml(s.sessionId)}"><strong>${escapeHtml(s.fullName || 'New applicant')}</strong><small>${escapeHtml(s.customerId || 'New applicant')} · ${escapeHtml(s.sessionId)}</small><small>${escapeHtml(s.updatedAt || '')}</small></button>`).join('') : '<div class="empty">No sessions pending review.</div>'; listEl.querySelectorAll('[data-session]').forEach(button => button.addEventListener('click', () => loadDetail(button.dataset.session))); setStatus('Connected'); } catch (error) { countEl.textContent = 'Reviews unavailable'; setStatus(error.message, true); } }
-    async function loadDetail(sessionId) { try { selectedSession = sessionId; const data = await request(`?action=detail&sessionId=${encodeURIComponent(sessionId)}`); const session = data.session || {}; const customer = data.customer || {}; const docs = data.documents || []; detailEl.innerHTML = `<h2>${escapeHtml(customer.fullName || 'New applicant')}</h2><p class="subtle">${escapeHtml(customer.phone || 'No phone')} · ${escapeHtml(customer.email || 'No email')}</p><div class="section"><h3>Conversation</h3><div class="messages">${(session.messages || []).map(m => `<div class="message ${escapeHtml(m.role)}"><strong>${escapeHtml(m.role)}</strong><br>${escapeHtml(m.text)}</div>`).join('') || '<span class="subtle">No conversation history.</span>'}</div></div><div class="section"><h3>Documents</h3><div class="docs">${docs.map(d => `<div class="doc"><span>${escapeHtml(d.docType)} <small>(${escapeHtml(d.status)})</small></span>${d.viewUrl ? `<a href="${escapeHtml(d.viewUrl)}" target="_blank" rel="noopener">View</a>` : ''}</div>`).join('') || '<span class="subtle">No documents attached.</span>'}</div></div><div class="actions"><button class="approve" data-decision="approve">Approve</button><button class="reject" data-decision="reject">Reject</button></div>`; detailEl.querySelectorAll('[data-decision]').forEach(button => button.addEventListener('click', () => decide(button.dataset.decision))); listEl.querySelectorAll('.review').forEach(button => button.classList.toggle('selected', button.dataset.session === sessionId)); } catch (error) { setStatus(error.message, true); } }
-    async function decide(action) { if (!selectedSession || !confirm(`${action[0].toUpperCase() + action.slice(1)} this application?`)) return; try { await request('', { method:'POST', body:JSON.stringify({ action, sessionId:selectedSession }) }); setStatus(`Application ${action}d.`); selectedSession = null; detailEl.innerHTML = '<div class="empty">Select a review to inspect its conversation and documents.</div>'; await loadList(); } catch (error) { setStatus(error.message, true); } }
-    document.querySelector('#connect').addEventListener('click', loadList); document.querySelector('#refresh').addEventListener('click', loadList);
+    let selectedReference = null;
+
+    apiInput.value = localStorage.getItem('bluey.bankerApiUrl') || '';
+    tokenInput.value = localStorage.getItem('bluey.bankerToken') || '';
+
+    function setStatus(text, error = false) {
+      statusEl.textContent = text;
+      statusEl.className = `status${error ? ' error' : ''}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function config() {
+      const api = apiInput.value.trim().replace(/\/$/, '');
+      const token = tokenInput.value.trim();
+      if (!api || !token) throw new Error('Enter both the Banker API URL and Cognito ID token.');
+      localStorage.setItem('bluey.bankerApiUrl', api);
+      localStorage.setItem('bluey.bankerToken', token);
+      return { api, token };
+    }
+
+    async function request(path = '', options = {}) {
+      const { api, token } = config();
+      const response = await fetch(`${api}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...(options.headers || {})
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    }
+
+    function renderNotice(unreadCount) {
+      const count = Number(unreadCount) || 0;
+      noticeEl.hidden = false;
+      if (count > 0) {
+        noticeEl.className = 'notice has-unread';
+        noticeEl.textContent = `${count} unreviewed item${count === 1 ? '' : 's'} waiting`;
+      } else {
+        noticeEl.className = 'notice all-clear';
+        noticeEl.textContent = "You're all caught up — no unreviewed items.";
+      }
+    }
+
+    async function loadList() {
+      try {
+        setStatus('Loading applications and reviews...');
+        const data = await request('?action=list');
+        const sessions = data.sessions || [];
+        countEl.textContent = `${sessions.length} pending item${sessions.length === 1 ? '' : 's'} to review`;
+
+        if (data.bankerId || data.tier) {
+          identityEl.textContent = `Connected — ${data.bankerId || 'banker'} (${data.tier || 'unknown'})`;
+        } else {
+          identityEl.textContent = 'Connected (Banker)';
+        }
+
+        renderNotice(data.unreadCount);
+
+        // Render rows in the exact server-returned order (do NOT re-sort — R2.4).
+        listEl.innerHTML = sessions.length ? sessions.map(s => {
+          const isUnread = s.readState === 'unread';
+          const isSelected = (s.sessionId === selectedSession || s.reference === selectedReference);
+          const categoryLabel = CATEGORY_LABELS[s.workCategory] || s.workCategory || '';
+          return `
+          <button class="review ${isUnread ? 'unread' : ''} ${isSelected ? 'selected' : ''}"
+                  data-session="${escapeHtml(s.sessionId || '')}"
+                  data-reference="${escapeHtml(s.reference || '')}"
+                  data-item-id="${escapeHtml(s.itemId || '')}">
+            <strong>${escapeHtml(s.fullName || 'New Applicant')}</strong>
+            <small>${escapeHtml(s.reference || s.sessionId || 'Ref: N/A')} · ${escapeHtml(s.accountType || 'Account Application')}</small>
+            <small>${escapeHtml(s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '')}</small>
+            <span class="badge ${s.status === 'pending_review' || s.status === 'Pending' ? 'pending' : ''}">${escapeHtml(s.status || 'Pending')}</span>
+            ${categoryLabel ? `<span class="badge category">${escapeHtml(categoryLabel)}</span>` : ''}
+            ${isUnread ? `<span class="mark-read" role="button" tabindex="0" data-mark-read="${escapeHtml(s.itemId || '')}">Mark as read</span>` : ''}
+          </button>
+        `;
+        }).join('') : '<div class="empty">No pending applications or sessions for review.</div>';
+
+        listEl.querySelectorAll('[data-session]').forEach(button => {
+          button.addEventListener('click', () => loadDetail(button.dataset.session, button.dataset.reference));
+        });
+
+        listEl.querySelectorAll('[data-mark-read]').forEach(control => {
+          control.addEventListener('click', (event) => {
+            event.stopPropagation();
+            markRead(control.dataset.markRead);
+          });
+          control.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              event.stopPropagation();
+              markRead(control.dataset.markRead);
+            }
+          });
+        });
+
+        setStatus('Connected');
+      } catch (error) {
+        countEl.textContent = 'Reviews unavailable';
+        setStatus(error.message, true);
+        identityEl.textContent = 'Connection failed';
+      }
+    }
+
+    async function markRead(itemId) {
+      if (!itemId) return;
+      try {
+        await request('', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'mark_read', itemId })
+        });
+        // Refresh the list so the row flips to read and the banner count updates.
+        await loadList();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function loadDetail(sessionId, reference) {
+      try {
+        selectedSession = sessionId || null;
+        selectedReference = reference || null;
+        setStatus('Loading details...');
+        
+        const params = new URLSearchParams({ action: 'detail' });
+        if (sessionId) params.set('sessionId', sessionId);
+        if (reference) params.set('reference', reference);
+
+        const data = await request(`?${params.toString()}`);
+        const session = data.session || {};
+        const customer = data.customer || {};
+        const application = data.application || {};
+        const docs = data.documents || [];
+        const accounts = data.accounts || [];
+        const credit = data.credit || {};
+
+        const applicantData = application.applicantData || {};
+        const fullName = customer.fullName || applicantData.fullName || session.applicantName || 'Applicant';
+        const phone = customer.phone || applicantData.phone || session.applicantPhone || 'N/A';
+        const email = customer.email || applicantData.email || session.applicantEmail || 'N/A';
+        const idNumber = customer.idNumber || applicantData.idNumber || 'N/A';
+        const accountType = application.accountType || session.accountType || 'Standard Bank Account';
+        const appRef = application.reference || session.reference || reference || 'N/A';
+
+        detailEl.innerHTML = `
+          <h2>${escapeHtml(fullName)}</h2>
+          <p class="subtle">Reference: <strong>${escapeHtml(appRef)}</strong> · ${escapeHtml(accountType)}</p>
+          
+          <div class="info-grid">
+            <div class="info-item"><label>Phone</label><span>${escapeHtml(phone)}</span></div>
+            <div class="info-item"><label>Email</label><span>${escapeHtml(email)}</span></div>
+            <div class="info-item"><label>SA ID Number</label><span>${escapeHtml(idNumber)}</span></div>
+            <div class="info-item"><label>Application Status</label><span class="badge pending">${escapeHtml(application.status || session.reviewStatus || 'Pending')}</span></div>
+            ${customer.creditScore ? `<div class="info-item"><label>Credit Score</label><span>${escapeHtml(customer.creditScore)}</span></div>` : ''}
+            ${customer.monthly_income ? `<div class="info-item"><label>Monthly Income</label><span>R ${escapeHtml(customer.monthly_income)}</span></div>` : ''}
+          </div>
+
+          <div class="section">
+            <h3>KYC & Verification Documents (${docs.length})</h3>
+            <div class="docs">
+              ${docs.length ? docs.map(d => `
+                <div class="doc">
+                  <div>
+                    <strong>${escapeHtml(d.docType === 'id_document' ? 'Identity Document (ID / Passport)' : d.docType === 'proof_of_address' ? 'Proof of Residential Address' : d.docType)}</strong>
+                    <br><small style="color:var(--muted)">Status: ${escapeHtml(d.status)} ${d.fileName ? `· ${escapeHtml(d.fileName)}` : ''} ${d.uploadedAt ? `· Uploaded ${new Date(d.uploadedAt).toLocaleString()}` : ''}</small>
+                  </div>
+                  ${d.viewUrl ? `<a href="${escapeHtml(d.viewUrl)}" target="_blank" rel="noopener" class="view-btn">📄 Open Document</a>` : '<span class="subtle">No file link</span>'}
+                </div>
+              `).join('') : '<span class="subtle">No KYC documents uploaded yet.</span>'}
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Applicant Chat / Conversation History</h3>
+            <div class="messages">
+              ${(session.messages || []).length ? session.messages.map(m => `
+                <div class="message ${escapeHtml(m.role)}">
+                  <strong>${escapeHtml(m.role === 'user' ? '👤 Customer' : '🤖 Bluey Assistant')}</strong>
+                  <div style="margin-top:3px;">${escapeHtml(m.text)}</div>
+                </div>
+              `).join('') : '<span class="subtle">No recorded conversation history.</span>'}
+            </div>
+          </div>
+
+          ${accounts.length ? `
+            <div class="section">
+              <h3>Existing Customer Accounts</h3>
+              <div class="docs">
+                ${accounts.map(a => `
+                  <div class="doc">
+                    <div><strong>${escapeHtml(a.accountType)} (${escapeHtml(a.accountNumber)})</strong></div>
+                    <div><strong>${escapeHtml(a.currency || 'ZAR')} ${Number(a.balance).toFixed(2)}</strong></div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="actions">
+            <button class="approve" data-decision="approve">✓ Approve Application</button>
+            <button class="reject" data-decision="reject">✗ Reject Application</button>
+          </div>
+        `;
+
+        detailEl.querySelectorAll('[data-decision]').forEach(button => {
+          button.addEventListener('click', () => decide(button.dataset.decision));
+        });
+
+        listEl.querySelectorAll('.review').forEach(button => {
+          const isMatch = (sessionId && button.dataset.session === sessionId) || (reference && button.dataset.reference === reference);
+          button.classList.toggle('selected', Boolean(isMatch));
+        });
+
+        setStatus('Details loaded');
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function decide(action) {
+      if (!confirm(`Are you sure you want to ${action.toUpperCase()} this application?`)) return;
+      try {
+        await request('', {
+          method: 'POST',
+          body: JSON.stringify({
+            action,
+            sessionId: selectedSession,
+            reference: selectedReference,
+          })
+        });
+        setStatus(`Application successfully ${action}d.`);
+        selectedSession = null;
+        selectedReference = null;
+        detailEl.innerHTML = '<div class="empty">Select an application or review to inspect customer details, KYC documents, and chat history.</div>';
+        await loadList();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    document.querySelector('#connect').addEventListener('click', loadList);
+    document.querySelector('#refresh').addEventListener('click', loadList);
   </script>
 </body>
 </html>

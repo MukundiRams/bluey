@@ -45,6 +45,21 @@ Reference descriptions for the products used in `retailcore-pipeline-cleaned.ipy
 | Fixed Deposit | A savings or investment account in which money is placed for a chosen fixed term at an agreed interest rate. Access before maturity may be restricted or subject to conditions. |
 | Tax-Free Savings Account | A long-term savings or investment account designed to provide tax-free returns within the annual and lifetime contribution limits set by South African tax legislation. |
 
+## Self-service how-to (account actions)
+
+These entries cover common self-service account actions. Each provides the official Standard Bank link a verified customer can use to complete the action. **These actions concern a customer's own account, so identity must be verified (via SA ID) before the link is shared.**
+
+| Action | How-to and link |
+|---|---|
+| View or change your card PIN | You can view or change your PIN in the Standard Bank Mobile App or Internet Banking. Manage your PIN here: https://www.standardbank.co.za/southafrica/personal/products/bank-cards/manage-your-card |
+| Reset your Internet Banking / app password | Reset your password from the login screen of the app or Internet Banking, or manage your profile here: https://www.standardbank.co.za/southafrica/personal/products/ways-to-bank/digital-banking |
+| View or download account statements | Verified customers can view and download statements in the app or Internet Banking. Learn more here: https://www.standardbank.co.za/southafrica/personal/products/ways-to-bank/digital-banking |
+| Report a lost or stolen card / block a card | Block a lost or stolen card immediately in the app, or call the 24/7 line. Card safety and blocking: https://www.standardbank.co.za/southafrica/personal/products/bank-cards/manage-your-card |
+| Order or replace a bank card | Order or replace a card through the app, Internet Banking, or a branch. Card management: https://www.standardbank.co.za/southafrica/personal/products/bank-cards/manage-your-card |
+| Update your contact details | Update your cellphone number, email, or address in the app or Internet Banking under your profile: https://www.standardbank.co.za/southafrica/personal/products/ways-to-bank/digital-banking |
+
+**Research note:** These links point to Standard Bank South Africa's public product and digital-banking pages, and are provided so a verified customer can complete the action on the official site. Exact deep links and page structure can change; revalidate against Standard Bank before production use.
+
 ## Sources
 
 - [Standard Bank account comparison](https://www.standardbank.co.za/southafrica/personal/products/bank-accounts/compare-our-accounts)

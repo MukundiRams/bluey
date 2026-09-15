@@ -22,7 +22,13 @@ TABLE_NAMES = {
     "bankers": "bluey-bankers",
     "credit": "bluey-credit",
     "applications": "bluey-applications",
+    "documents": "bluey-documents",
+    "messages": "bluey-messages",
 }
+
+
+def table_name(dataset_name, stage):
+    return f"{TABLE_NAMES[dataset_name]}-{stage}"
 
 
 def customer(customer_id, name, email, phone, id_number, banker, **features):
@@ -551,6 +557,9 @@ CREDIT = [
         "creditScore": 612,
         "rating": "fair",
         "lastUpdated": iso(31, 8),
+        "reviewStatus": "pending_review",
+        "createdAt": iso(25, 9),
+        "updatedAt": iso(25, 9),
     },
     {
         "customerId": "cust-002",
@@ -572,6 +581,9 @@ CREDIT = [
         "creditScore": 480,
         "rating": "poor",
         "lastUpdated": iso(31, 8),
+        "reviewStatus": "pending_review",
+        "createdAt": iso(28, 9),
+        "updatedAt": iso(28, 9),
     },
     {
         "customerId": "cust-005",
@@ -593,6 +605,7 @@ CREDIT = [
 APPLICATIONS = [
     {
         "reference": "APP-DEMO-001",
+        "sessionId": "sess-demo-006",
         "customerId": "cust-006",
         "accountType": "Savings",
         "status": "Pending",
@@ -600,11 +613,93 @@ APPLICATIONS = [
             "fullName": "Lerato Mokoena",
             "email": "lerato.mokoena@example.com",
             "phone": "0820001006",
+            "idNumber": "9506066789094",
+            "address": "124 Oxford Road, Rosebank, Johannesburg, 2196",
         },
         "createdAt": iso(26, 13),
+        "updatedAt": iso(26, 13),
+    },
+    {
+        "reference": "APP-DEMO-002",
+        "sessionId": "sess-demo-005",
+        "customerId": "cust-005",
+        "accountType": "MyMo Account",
+        "status": "Pending",
+        "applicantData": {
+            "fullName": "Thabo Molefe",
+            "email": "thabo.molefe@example.com",
+            "phone": "0820001005",
+            "idNumber": "9805055678093",
+            "address": "45 Nelson Mandela Drive, Bloemfontein, 9301",
+        },
+        "createdAt": iso(27, 11),
+        "updatedAt": iso(27, 11),
     },
 ]
 
+DOCUMENTS = [
+    {
+        "sessionId": "sess-demo-006",
+        "docType": "id_document",
+        "s3Key": "documents/sess-demo-006/id_document",
+        "status": "uploaded",
+        "fileName": "lerato_mokoena_id.pdf",
+        "fileSize": 1048576,
+        "contentType": "application/pdf",
+        "createdAt": iso(26, 13),
+        "uploadedAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-006",
+        "docType": "proof_of_address",
+        "s3Key": "documents/sess-demo-006/proof_of_address",
+        "status": "uploaded",
+        "fileName": "lerato_mokoena_utility_bill.pdf",
+        "fileSize": 524288,
+        "contentType": "application/pdf",
+        "createdAt": iso(26, 13),
+        "uploadedAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-005",
+        "docType": "id_document",
+        "s3Key": "documents/sess-demo-005/id_document",
+        "status": "uploaded",
+        "fileName": "thabo_molefe_smart_id.pdf",
+        "fileSize": 839210,
+        "contentType": "application/pdf",
+        "createdAt": iso(27, 11),
+        "uploadedAt": iso(27, 11),
+    },
+    {
+        "sessionId": "sess-demo-005",
+        "docType": "proof_of_address",
+        "s3Key": "documents/sess-demo-005/proof_of_address",
+        "status": "uploaded",
+        "fileName": "thabo_molefe_rates_taxes.pdf",
+        "fileSize": 612400,
+        "contentType": "application/pdf",
+        "createdAt": iso(27, 11),
+        "uploadedAt": iso(27, 11),
+    },
+]
+
+MESSAGES = [
+    {
+        "sessionId": "sess-demo-006",
+        "createdAt#messageId": f"{iso(26, 13)}#msg-001",
+        "role": "user",
+        "text": "I want to open a savings account.",
+        "createdAt": iso(26, 13),
+    },
+    {
+        "sessionId": "sess-demo-006",
+        "createdAt#messageId": f"{iso(26, 13)}#msg-002",
+        "role": "assistant",
+        "text": "Please provide your details and upload your required documents.",
+        "createdAt": iso(26, 13),
+    },
+]
 
 DATASETS = {
     "customers": CUSTOMERS,
@@ -614,6 +709,8 @@ DATASETS = {
     "bankers": BANKERS,
     "credit": CREDIT,
     "applications": APPLICATIONS,
+    "documents": DOCUMENTS,
+    "messages": MESSAGES,
 }
 
 
@@ -672,12 +769,12 @@ def validate():
         raise ValueError(f"Accounts with fewer than three transactions: {missing_transactions}")
 
 
-def write_dataset(dynamodb, dataset_name, items, dry_run):
-    table_name = TABLE_NAMES[dataset_name]
-    print(f"{dataset_name}: {len(items)} records -> {table_name}")
+def write_dataset(dynamodb, dataset_name, items, stage, dry_run):
+    target_table_name = table_name(dataset_name, stage)
+    print(f"{dataset_name}: {len(items)} records -> {target_table_name}")
     if dry_run:
         return
-    table = dynamodb.Table(table_name)
+    table = dynamodb.Table(target_table_name)
     with table.batch_writer(overwrite_by_pkeys=None) as batch:
         for item in items:
             batch.put_item(Item=decimalize(item))
@@ -687,6 +784,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--profile", help="AWS profile for the target account")
+    parser.add_argument("--stage", default="dev", help="CDK deployment stage to seed")
     parser.add_argument(
         "--table",
         action="append",
@@ -704,7 +802,7 @@ def main():
     dynamodb = session.resource("dynamodb")
     selected = args.tables or list(DATASETS)
     for dataset_name in selected:
-        write_dataset(dynamodb, dataset_name, DATASETS[dataset_name], args.dry_run)
+        write_dataset(dynamodb, dataset_name, DATASETS[dataset_name], args.stage, args.dry_run)
     print("Dry run complete." if args.dry_run else "Seeding complete.")
 
 

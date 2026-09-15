@@ -16,7 +16,7 @@ class BlueyDataStack(Stack):
 
         def table(name: str, pk: str, sk: str | None = None) -> dynamodb.Table:
             kwargs = dict(
-                table_name=name,
+            table_name=f"{name}-{stage}",
                 partition_key=dynamodb.Attribute(name=pk, type=dynamodb.AttributeType.STRING),
                 billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
                 removal_policy=RemovalPolicy.RETAIN if stage != "dev" else RemovalPolicy.DESTROY,
@@ -34,6 +34,7 @@ class BlueyDataStack(Stack):
         self.tables["bankers"] = table("bluey-bankers", "bankerId")
         self.tables["credit"] = table("bluey-credit", "customerId", "sessionId")
         self.tables["messages"] = table("bluey-messages", "sessionId", "createdAt#messageId")
+        self.tables["read_state"] = table("bluey-banker-read-state", "bankerId", "itemId")
 
         self.credit_data_bucket = s3.Bucket(
             self, "CreditDataBucket",

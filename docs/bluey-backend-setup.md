@@ -1341,6 +1341,19 @@ Response shape now optionally includes:
 ```
 `chartData` is only present on turns where a visualization was actually requested and generated — absent otherwise.
 
+### 9.7 Fix: chart wasn't produced for whole-customer "spending breakdown" asks
+
+**Bug found**: `get_transaction_chart` required a single `accountId`. For a customer with more than one account, a request like "what's my spending breakdown" is about their overall spending, not one account — the harness had no single `accountId` to pass and often didn't call the tool at all, so no chart was produced.
+
+**Fix**: `accountId` is now optional. The tool also accepts `customerId`, in which case it looks up every account for that customer (`ACCOUNTS_TABLE` query by `customerId`) and aggregates transactions across all of them. `sessionId` is the only still-required input. The system prompts (`main.txt`, `financial-advice.txt`) now tell the harness to prefer passing `customerId` for a general breakdown, and only pass `accountId` when the customer names one specific account — and to trigger this tool for phrasing like "spending breakdown" / "where does my money go", not only the literal words "chart" or "visualize".
+
+**Also added**: the tool now returns more than one chart plus a numeric summary, without changing the previously-documented shape:
+- Top-level `type`/`title`/`labels`/`values` are unchanged (still the spending-by-category bar chart), so existing consumers keep working.
+- `charts`: an array of `[bar, pie, line]` chart objects — the pie chart adds `percentages`; the line chart is spending-over-time by day.
+- `summary`: `totalSpend`, `totalIncome`, `netCashflow`, `transactionCount`, `spendingTransactionCount`, `topCategory`, `averageTransactionAmount`, `accountsIncluded`, and a per-category `categoryBreakdown` (amount, percentage, transactionCount).
+
+All numeric values in this richer structure are still converted to `Decimal` recursively (`_floats_to_decimal`) before the `pendingChartData` DynamoDB write.
+
 ---
 
 ## Open Items / Next Steps
