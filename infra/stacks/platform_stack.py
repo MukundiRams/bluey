@@ -165,6 +165,21 @@ class BlueyPlatformStack(Stack):
         self.banker_fn = fn("bluey-banker-api", banker_role, timeout=30)
         self.document_fn = fn("bluey-document-api", document_role, timeout=30)
 
+        # Read-only accounts/transactions endpoint: role only has GetItem/Query/Scan
+        # on those two tables, no write access and no access to any other table.
+        readonly_data_role = execution_role("bluey-readonly-data-api-role")
+        data_stack.tables["accounts"].grant_read_data(readonly_data_role)
+        data_stack.tables["transactions"].grant_read_data(readonly_data_role)
+        self.readonly_data_fn = fn("bluey-readonly-data-api", readonly_data_role, timeout=10, code_path="lambda/bluey-readonly-data-api")
+        self.readonly_data_function_url = self.readonly_data_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            cors=lambda_.FunctionUrlCorsOptions(
+                allowed_origins=["*"],
+                allowed_methods=[lambda_.HttpMethod.GET],
+                allowed_headers=["content-type"],
+            ),
+        )
+
         # Harness-invoking Lambdas deliberately use Function URLs because the
         # documented AgentCore cold-start path can exceed HTTP API integration
         # timeouts (29s hard ceiling, harness cold starts observed up to ~60s).
@@ -644,6 +659,7 @@ class BlueyPlatformStack(Stack):
         CfnOutput(self, "AccountOpeningFunctionUrl", value=self.account_opening_function_url.url)
         CfnOutput(self, "CreditFunctionUrl", value=self.credit_function_url.url)
         CfnOutput(self, "FinancialAdviceFunctionUrl", value=self.financial_advice_function_url.url)
+        CfnOutput(self, "ReadonlyDataFunctionUrl", value=self.readonly_data_function_url.url)
         CfnOutput(self, "MainGatewayArnOutput", value=main_gateway.attr_gateway_arn)
         CfnOutput(self, "CreditGatewayArnOutput", value=credit_gateway.attr_gateway_arn)
         CfnOutput(self, "AccountOpeningGatewayArnOutput", value=account_opening_gateway.attr_gateway_arn)

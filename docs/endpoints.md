@@ -15,6 +15,7 @@ file will go stale if the stack is destroyed/recreated.
 | Banker API (review/approve/reject) | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com/banker` |
 | Document API | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com/documents` |
 | HTTP API base | `https://30cxlzxl00.execute-api.us-east-1.amazonaws.com` |
+| Read-only accounts/transactions | `ReadonlyDataFunctionUrl` output of `BlueyPlatform-<stage>` |
 
 All chat-style endpoints (customer chat, account opening, credit, financial advice) take the same
 request/response shape — see [frontend-contract.md](frontend-contract.md).
@@ -37,6 +38,38 @@ Save and resend the returned `session_id` on every subsequent message in the sam
 Chat responses may also include `chartData` (see [frontend-contract.md](frontend-contract.md) for the full shape).
 `user_id` in the request body is not trusted — the backend derives identity from the Cognito
 access token.
+
+## Read-only accounts/transactions endpoint
+
+A single Function URL (unauthenticated, public) fronts one Lambda with read-only
+(`GetItem`/`Query`/`Scan` only, no write access) IAM permissions on the `bluey-accounts` and
+`bluey-transactions` tables. It's one URL for both tables because the same Lambda routes on an
+`action` query parameter rather than needing a separate function/URL per table. Get the current
+URL with `python scripts/stack_outputs.py --stage dev` (`ReadonlyDataFunctionUrl` under
+`[BlueyPlatform-dev]`).
+
+Get a customer's accounts:
+
+```bash
+curl "<ReadonlyDataFunctionUrl>?action=accounts&customerId=<customerId>"
+```
+
+```json
+{"result": [{"customerId": "...", "accountId": "...", "accountType": "Savings", "balance": "..."}]}
+```
+
+Get an account's recent transactions (`limit` optional, defaults to 20, newest first):
+
+```bash
+curl "<ReadonlyDataFunctionUrl>?action=transactions&accountId=<accountId>&limit=10"
+```
+
+```json
+{"result": [{"accountId": "...", "date#transactionId": "...", "amount": "...", "description": "..."}]}
+```
+
+`customerId` / `accountId` are required for their respective actions; omitting them, or sending
+any other `action`, returns a `400` with an `{"error": "..."}` body.
 
 ## Cognito auth
 
