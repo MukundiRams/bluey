@@ -89,6 +89,10 @@ def test_banker_list_and_detail(monkeypatch):
             return {}
         def update_item(self, **kwargs):
             return {}
+        def put_item(self, Item=None, **kwargs):
+            if Item is not None:
+                self.items.append(Item)
+            return {}
 
     sessions = [{"sessionId": "sess-test", "applicantName": "John Doe", "reviewStatus": "pending_review"}]
     applications = [{"reference": "APP-001", "sessionId": "sess-test", "status": "Pending", "applicantData": {"fullName": "John Doe"}}]
@@ -108,6 +112,10 @@ def test_banker_list_and_detail(monkeypatch):
     monkeypatch.setattr(module, "credit_table", MockTable([]))
     monkeypatch.setattr(module, "bankers_table", MockTable(bankers))
     monkeypatch.setattr(module, "read_state_table", MockTable([]))
+    # The list action now enriches items via get_allocation(itemId,
+    # assignments_table); stub the new assignments table so enrich resolves to
+    # None (no allocation) instead of hitting real AWS.
+    monkeypatch.setattr(module, "assignments_table", MockTable([]))
 
     auth_event = {
         "requestContext": {"authorizer": {"jwt": {"claims": {

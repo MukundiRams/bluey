@@ -1,8 +1,9 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
+from botocore.exceptions import ClientError
 
 REGION = os.environ.get("AWS_REGION_NAME", os.environ.get("AWS_REGION", "us-east-1"))
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -14,6 +15,7 @@ applications_table = dynamodb.Table(os.environ.get("APPLICATIONS_TABLE", "bluey-
 accounts_table = dynamodb.Table(os.environ.get("ACCOUNTS_TABLE", "bluey-accounts"))
 credit_table = dynamodb.Table(os.environ.get("CREDIT_TABLE", "bluey-credit"))
 read_state_table = dynamodb.Table(os.environ.get("READ_STATE_TABLE", "bluey-banker-read-state"))
+assignments_table = dynamodb.Table(os.environ.get("ASSIGNMENTS_TABLE", "bluey-banker-assignments"))
 s3 = boto3.client("s3", region_name=REGION)
 DOCUMENTS_BUCKET = os.environ.get("DOCUMENTS_BUCKET", "")
 
@@ -39,6 +41,10 @@ _LOAN_PRODUCTS = frozenset(
 
 # accountType values denoting a deposit / transaction product (R1.2).
 _DEPOSIT_ACCOUNT_TYPES = frozenset({"savings", "mymo account", "cheque"})
+
+# Staleness boundary: a pending item waiting strictly longer than this is stale.
+# See design → Stale Query Notification. Exactly 24h is NOT stale (strict >).
+STALE_THRESHOLD = timedelta(hours=24)
 
 
 def build_item_id(source, *, session_id=None, reference=None, customer_id=None):
@@ -203,13 +209,23 @@ def _resolve_assigned_banker_id(customer_id, customers_tbl):
     return personal_banker.get("bankerId")
 
 
-def enrich(item, customers_tbl=None):
+def enrich(item, customers_tbl=None, assignments_tbl=None):
     """Enrich a gathered candidate with routing/classification inputs.
 
     Adds three fields to (a copy-updated) ``item``:
-      - ``assignedBankerId`` (str | None): the owning customer's
-        ``personalBanker.bankerId`` (Assigned_Banker), or ``None`` for a
-        walk-in / unassigned customer / missing customer record.
+      - ``assignedBankerId`` (str | None): the item's Assigned_Banker, resolved
+        by this precedence (R5.1, R5.2, R5.3):
+          1. the owning customer's ``personalBanker.bankerId`` when the customer
+             record carries one (an Assigned_Customer) — this ALWAYS wins and is
+             NEVER overridden by an allocation lookup (R5.1); the allocation
+             read is skipped entirely in this case.
+          2. else, for an Unassigned_Customer / Walk_In_Applicant (no
+             ``personalBanker.bankerId``), the persisted
+             ``Allocation_Record.assignedBankerId`` read back via
+             ``get_allocation(itemId, assignments_tbl)`` when a record with a
+             truthy value exists (R5.2).
+          3. else ``None`` — including when the allocation record is absent or
+             carries a missing/falsy ``assignedBankerId`` (R5.3, R8.4).
       - ``isWalkIn`` (bool): ``True`` when the candidate has no ``customerId``
         (a Walk_In_Applicant), else ``False``.
       - ``hasLinkedApplication`` (bool): ``True`` for application-sourced items
@@ -217,17 +233,34 @@ def enrich(item, customers_tbl=None):
         session items (a session already represented by an application was
         de-duplicated away in ``gather_candidates``) and for credit items.
 
-    Only the customer lookup touches AWS; it is factored behind the
-    ``customers_tbl`` parameter (defaulting to the module-level
-    ``customers_table``) so enrich can be tested without live AWS. The
-    field-extraction logic is otherwise pure.
+    Both AWS-touching lookups are factored behind injectable parameters so
+    enrich stays testable without live AWS (R5.4): ``customers_tbl`` (the
+    ``personalBanker`` lookup, defaulting to the module-level
+    ``customers_table``) and ``assignments_tbl`` (the ``Allocation_Record``
+    read-back, defaulting to the module-level ``assignments_table``). The
+    customer ``get_item`` always runs; the assignments ``get_item`` runs only on
+    the unassigned path. The field-extraction logic is otherwise pure.
     """
     customers_tbl = customers_tbl if customers_tbl is not None else customers_table
+    assignments_tbl = assignments_tbl if assignments_tbl is not None else assignments_table
 
     customer_id = item.get("customerId")
     source = item.get("source")
 
-    item["assignedBankerId"] = _resolve_assigned_banker_id(customer_id, customers_tbl)
+    assigned_banker_id = _resolve_assigned_banker_id(customer_id, customers_tbl)
+    if not assigned_banker_id:
+        # Unassigned_Customer / Walk_In_Applicant: consult the persisted
+        # Allocation_Record. A present personalBanker.bankerId is never reached
+        # here, so it is never overridden (R5.1, R5.2, R5.3, R8.4).
+        allocated = get_allocation(item.get("itemId"), assignments_tbl)
+        if allocated:
+            assigned_banker_id = allocated
+
+    # Normalize a falsy result (e.g. an empty personalBanker.bankerId with no
+    # truthy allocation) to None so an unassigned item is reported as None
+    # (R5.3, R8.4), consistent with visible_to/workload_count treating falsy as
+    # unassigned.
+    item["assignedBankerId"] = assigned_banker_id or None
     item["isWalkIn"] = not customer_id
     item["hasLinkedApplication"] = source == "application"
     return item
@@ -417,6 +450,63 @@ def sort_queue(items):
     return sorted(items, key=sort_key)
 
 
+def stale_age(item, now):
+    """Age of a queue item at reference time ``now`` (PURE, no I/O).
+
+    Derives Waiting_Time exactly as ``sort_key`` does: parse ``createdAt`` via
+    the existing tolerant ``_parse_timestamp``, falling back to ``updatedAt``.
+    Returns ``now - waiting_time`` (a ``timedelta``) when a timestamp is
+    parseable, else ``None`` for an UNDATED item (both timestamps missing/
+    unparseable). Naive stored timestamps are treated as UTC by
+    ``_parse_timestamp`` so the subtraction never mixes aware/naive datetimes.
+
+    Pure and deterministic: does not mutate ``item`` and returns equal results
+    for equal ``(item, now)`` inputs. This is the single source of truth for an
+    item's "age" and underpins ``is_stale`` (R1).
+    """
+    waiting_time = _parse_timestamp(item.get("createdAt"))
+    if waiting_time is None:
+        waiting_time = _parse_timestamp(item.get("updatedAt"))
+    if waiting_time is None:
+        return None
+    return now - waiting_time
+
+
+def is_stale(item, now, threshold=STALE_THRESHOLD):
+    """Boolean staleness predicate for a single item (PURE, no I/O) (R2).
+
+    Returns ``True`` iff the item is dated (``stale_age`` is not ``None``) AND
+    its age STRICTLY exceeds ``threshold`` (default 24h). Returns ``False`` for:
+      - UNDATED items (``stale_age`` is ``None``),
+      - items whose age is exactly the threshold (strict ``>``), and
+      - future-dated items (negative age).
+
+    Depends only on ``createdAt``/``updatedAt``/``now`` (never ``readState``),
+    so staleness is orthogonal to read/unread state (R4). Always returns a
+    ``bool``, is total over all dicts, and honors a caller-supplied ``threshold``.
+    """
+    age = stale_age(item, now)
+    return age is not None and age > threshold
+
+
+def stale_flags(items, now, threshold=STALE_THRESHOLD):
+    """Flag each item's ``isStale`` and return the stale count (PURE) (R3).
+
+    Mirrors ``resolve_read_state`` + ``unread_count``: in one pass sets
+    ``item["isStale"] = is_stale(item, now, threshold)`` for every item and
+    returns the number of stale items. By construction the returned count equals
+    ``sum(1 for i in items if i["isStale"])`` and lies in ``[0, len(items)]``.
+    Mutates only the ``isStale`` key of each item; performs no I/O.
+    """
+    count = 0
+    for item in items:
+        stale = is_stale(item, now, threshold)
+        item["isStale"] = stale
+        if stale:
+            count += 1
+    return count
+
+
 def read_state_for(banker_id, item_ids, read_state_tbl=None):
     """Return the SET of ``itemId``s marked read for ``banker_id`` (R4.1, R4.2, R4.5).
 
@@ -491,6 +581,120 @@ def unread_count(items):
     ``unread``.
     """
     return sum(1 for item in items if item.get("readState", "unread") == "unread")
+
+
+def workload_count(banker_id, items):
+    """Count Pending_Items assigned to ``banker_id`` (PURE, no I/O) (R1).
+
+    Returns the number of items ``i`` in ``items`` whose
+    ``i.get("assignedBankerId")`` equals ``banker_id`` (R1.1). Every supplied
+    item is treated as a Pending_Item — the list comes from
+    ``gather_candidates``, which emits only pending records, so resolved
+    (approved/rejected) items are already absent (R1.2, R1.3, R1.4). A
+    falsy/absent ``assignedBankerId`` matches no banker, so unassigned items are
+    never counted (R8.1). The result is an integer in ``[0, len(items)]``
+    (R1.5). Reads only ``assignedBankerId`` off each item; does not mutate
+    ``items`` and returns equal results for equal inputs (R1.6).
+    """
+    return sum(
+        1
+        for item in items
+        if item.get("assignedBankerId") and item.get("assignedBankerId") == banker_id
+    )
+
+
+def workload_by_banker(banker_ids, items):
+    """Map each supplied ``bankerId`` to its ``workload_count`` (PURE, no I/O) (R2).
+
+    Returns a mapping with exactly one entry per DISTINCT supplied ``bankerId``
+    (R2.1); duplicate ids collapse to a single key because a mapping cannot hold
+    a key twice. Each banker's value is ``workload_count(banker_id, items)`` over
+    the same ``items`` list (R2.2), which is ``0`` for a banker with no assigned
+    pending items (R2.3). Reads only ``assignedBankerId`` off each item (via
+    ``workload_count``); does not mutate either argument, performs no I/O, and
+    returns equal results for equal inputs (R2.4).
+    """
+    return {banker_id: workload_count(banker_id, items) for banker_id in banker_ids}
+
+
+def allocate(item, bankers, workload_map):
+    """Select the owning General_Tier banker for a General_Pool item (PURE) (R3).
+
+    If ``item`` already carries a truthy ``assignedBankerId``, returns it
+    unchanged — an idempotent no-op for an already-owned item, without
+    consulting ``workload_map`` (R3.5). Otherwise considers only
+    ``General_Tier`` bankers (``tier == "general"``) as candidates (R3.3, R6.5)
+    and returns the Least_Loaded_Banker: the candidate minimizing the key
+    ``(workload_map.get(bankerId, 0), bankerId)``, so a missing map entry is
+    treated as ``0`` (R3.1, R7.1, R8.3), ties are broken by the smallest
+    ``bankerId`` lexicographically (R3.2), and a Premium_Tier banker is never
+    selected. Returns ``None`` when there is no general banker (R3.4, R8.2).
+    Reads only ``assignedBankerId`` off the item and ``tier``/``bankerId`` off
+    each banker; does not mutate its arguments, performs no I/O, and returns
+    equal results for equal inputs (R3.6).
+    """
+    assigned = item.get("assignedBankerId")
+    if assigned:
+        return assigned
+
+    general = [b for b in bankers if b.get("tier") == "general"]
+    if not general:
+        return None
+
+    return min(
+        general,
+        key=lambda b: (workload_map.get(b["bankerId"], 0), b["bankerId"]),
+    )["bankerId"]
+
+
+def get_allocation(item_id, assignments_tbl=None):
+    """Read back the persisted ``assignedBankerId`` for ``item_id`` (R4).
+
+    Looks up the Assignments_Table by ``itemId`` (partition key) via
+    ``get_item`` (R4.2) and returns the record's ``assignedBankerId`` when
+    present and truthy, else ``None`` (R8.4). When no record exists for the
+    ``itemId``, ``get_item`` returns no ``Item`` and this returns ``None``
+    without raising (R8.5).
+
+    The Assignments_Table resource is accepted as a parameter (defaulting to the
+    module-level ``assignments_table``) so enrichment stays testable without
+    live AWS (R4.4). This ``get_item`` is the only I/O in the read path.
+    """
+    assignments_tbl = assignments_tbl if assignments_tbl is not None else assignments_table
+
+    record = assignments_tbl.get_item(Key={"itemId": item_id}).get("Item") or {}
+    assigned = record.get("assignedBankerId")
+    return assigned if assigned else None
+
+
+def put_allocation(item_id, banker_id, assignments_tbl=None):
+    """Idempotently persist an Allocation_Record for ``item_id`` (R4).
+
+    Writes ``{"itemId": item_id, "assignedBankerId": banker_id}`` keyed by
+    ``itemId`` (R4.1, R4.2) with a conditional put
+    (``attribute_not_exists(itemId)``) so an existing record is never
+    overwritten — allocation is first-writer-wins, idempotent, and does not
+    reallocate (R4.3, R4.5). When the condition fails, DynamoDB raises a
+    ``ConditionalCheckFailedException``; that specific ``ClientError`` is caught
+    and treated as success (the stored ``assignedBankerId`` stays whatever was
+    written first). Any other ``ClientError`` is re-raised.
+
+    The Assignments_Table resource is accepted as a parameter (defaulting to the
+    module-level ``assignments_table``) so this stays testable without live AWS
+    (R4.4). This ``put_item`` is the only I/O in the write path.
+    """
+    assignments_tbl = assignments_tbl if assignments_tbl is not None else assignments_table
+
+    try:
+        assignments_tbl.put_item(
+            Item={"itemId": item_id, "assignedBankerId": banker_id},
+            ConditionExpression="attribute_not_exists(itemId)",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            # First-writer-wins: an allocation already exists → treat as success.
+            return
+        raise
 
 
 def routed_item_ids_for(
@@ -645,6 +849,33 @@ def lambda_handler(event, context):
         for candidate in candidates:
             enrich(candidate)
 
+        # 3b. Allocate general-pool items to the least-loaded general banker and
+        #     persist ownership (banker-workload-allocation R6.1, R6.2, R6.3,
+        #     R7.1, R7.2). Candidates are already enriched, so assignedBankerId
+        #     reflects personalBanker plus any persisted Allocation_Record.
+        #       - Scan bankers_table for the full banker set and derive the
+        #         general-tier candidate ids.
+        #       - Compute the current workload per general banker over the
+        #         enriched candidates.
+        #       - For each still-unassigned (General_Pool) candidate, select the
+        #         least-loaded general banker, persist the allocation idempotently,
+        #         mark the in-memory item owned, and bump the workload so a burst
+        #         of unassigned items in one request spreads across general bankers
+        #         rather than piling onto one (R7.2).
+        bankers = [
+            {"bankerId": b.get("bankerId"), "tier": b.get("tier")}
+            for b in bankers_table.scan().get("Items", [])
+        ]
+        general_ids = [b["bankerId"] for b in bankers if b.get("tier") == "general"]
+        workload_map = workload_by_banker(general_ids, candidates)
+        for candidate in candidates:
+            if not candidate.get("assignedBankerId"):
+                selected = allocate(candidate, bankers, workload_map)
+                if selected is not None:
+                    put_allocation(candidate["itemId"], selected)
+                    candidate["assignedBankerId"] = selected
+                    workload_map[selected] = workload_map.get(selected, 0) + 1
+
         # 4. Classify + routing designation.
         for candidate in candidates:
             candidate["workCategory"] = classify(candidate)
@@ -657,6 +888,11 @@ def lambda_handler(event, context):
         item_ids = [c["itemId"] for c in filtered]
         read_ids = read_state_for(banker_id, item_ids)
         resolve_read_state(filtered, read_ids)
+
+        # 6b. Staleness: flag items pending > 24h against a single reference now
+        #     (stale-query-notification R6.1, R6.5). Ordering is unaffected.
+        now = datetime.now(timezone.utc)
+        stale = stale_flags(filtered, now)
 
         # 7. Sort oldest-first (R2).
         ordered = sort_queue(filtered)
@@ -678,6 +914,7 @@ def lambda_handler(event, context):
                 "routing": c.get("routing"),
                 "status": raw.get("reviewStatus") or raw.get("status") or "pending_review",
                 "readState": c.get("readState", "unread"),
+                "isStale": bool(c.get("isStale", False)),
                 "createdAt": c.get("createdAt"),
                 "updatedAt": c.get("updatedAt"),
             })
@@ -692,6 +929,7 @@ def lambda_handler(event, context):
             "bankerId": banker_id,
             "tier": tier,
             "unreadCount": unread,
+            "staleCount": stale,
             "sessions": sessions,
             "applications": app_list,
         })

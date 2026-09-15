@@ -192,8 +192,8 @@ def test_render_notice_zero_text(script_text: str):
 def test_loadlist_invokes_render_notice_with_unread_count(script_text: str):
     """loadList feeds the server unreadCount into the banner. (R3.1, R3.2)"""
     load_list = _extract_function_body(script_text, "loadList")
-    assert "renderNotice(data.unreadCount)" in load_list, (
-        "loadList must call renderNotice with the server-provided unreadCount"
+    assert "renderNotice(data.unreadCount, data.staleCount)" in load_list, (
+        "loadList must call renderNotice with the server-provided unreadCount (and staleCount)"
     )
 
 
@@ -285,3 +285,74 @@ def _extract_function_body(script: str, name: str) -> str:
             if depth == 0:
                 return script[start : i + 1]
     raise AssertionError(f"unbalanced braces while extracting function {name}")
+
+
+# ---------------------------------------------------------------------------
+# stale-query-notification — P7: frontend stale rendering (structural)
+# ---------------------------------------------------------------------------
+# Feature: stale-query-notification, Property 7: Frontend stale rendering (structural)
+
+
+def test_stale_notice_element_exists_in_markup(element_ids: set[str]):
+    """A #staleNotice element exists to host the stale banner. (R7.1, R7.2)"""
+    assert "staleNotice" in element_ids, (
+        "markup must contain an element with id='staleNotice'"
+    )
+
+
+def test_render_notice_accepts_stale_count(script_text: str):
+    """renderNotice takes a staleCount parameter. (R7.1, R7.2)"""
+    assert re.search(r"function\s+renderNotice\s*\(\s*unreadCount\s*,\s*staleCount\s*\)", script_text), (
+        "renderNotice must accept (unreadCount, staleCount)"
+    )
+
+
+def test_render_notice_shows_over_24_hours_wording_gated_on_stale_count(script_text: str):
+    """renderNotice emits an 'over 24 hours' message gated on staleCount > 0. (R7.1, R7.2)"""
+    render_notice = _extract_function_body(script_text, "renderNotice")
+    # Gate: the stale segment is conditioned on a positive stale count.
+    assert re.search(r"stale\s*>\s*0", render_notice), (
+        "renderNotice must gate the stale segment on stale > 0"
+    )
+    # Wording: the stale message references the 24-hour threshold.
+    assert "over 24 hours" in render_notice, (
+        "renderNotice must mention items waiting over 24 hours"
+    )
+
+
+def test_loadlist_passes_stale_count_to_render_notice(script_text: str):
+    """loadList feeds the server staleCount into the banner. (R7.1, R7.2)"""
+    load_list = _extract_function_body(script_text, "loadList")
+    assert "renderNotice(data.unreadCount, data.staleCount)" in load_list, (
+        "loadList must call renderNotice with the server-provided unreadCount and staleCount"
+    )
+
+
+def test_row_template_emits_stale_badge_bound_to_is_stale(script_text: str):
+    """The row template renders a `badge stale` when the session isStale. (R7.3)"""
+    # The badge is conditioned on the session's isStale flag.
+    assert re.search(r"s\.isStale\s*\?", script_text), (
+        "row rendering must condition the stale badge on s.isStale"
+    )
+    # And a stale badge element is emitted for stale rows.
+    assert re.search(r'badge\s+stale', script_text), (
+        "row template must emit a 'badge stale' element for stale items"
+    )
+
+
+def test_css_has_badge_stale_rule(style_text: str):
+    """CSS provides a distinct `.badge.stale` treatment. (R7.3)"""
+    assert re.search(r"\.badge\.stale\b", style_text), (
+        "stylesheet must define a distinct .badge.stale rule"
+    )
+
+
+def test_loadlist_still_renders_in_server_order_without_sort(script_text: str):
+    """Rows still render via sessions.map with no client-side sort. (R7.4)"""
+    load_list = _extract_function_body(script_text, "loadList")
+    assert "sessions.map(" in load_list, (
+        "loadList must render rows by mapping over the server-provided sessions"
+    )
+    assert ".sort(" not in load_list, (
+        "loadList must render in server order and must not call .sort() on sessions"
+    )

@@ -29,6 +29,7 @@
     .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; text-transform:uppercase; margin-top:6px; background:#e2f2f2; color:var(--teal); }
     .badge.pending { background:#fff3cd; color:#856404; }
     .badge.category { background:#e7eefc; color:var(--blue); margin-left:6px; }
+    .badge.stale { background:#fde2e1; color:var(--red); margin-left:6px; }
     .review.unread { border-left-color:var(--blue); background:#f5f9ff; }
     .review.unread strong::after { content:" • NEW"; color:var(--blue); font-size:11px; font-weight:700; }
     .mark-read { display:inline-block; margin-top:8px; padding:4px 10px; border-radius:6px; background:#829ab1; color:white; font:700 12px inherit; border:0; cursor:pointer; }
@@ -36,6 +37,7 @@
     .notice { border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin-bottom:14px; font-size:14px; font-weight:600; box-shadow:var(--shadow); }
     .notice.has-unread { background:#e7eefc; border-color:#c3d5f7; color:var(--blue); }
     .notice.all-clear { background:#e6f5ee; border-color:#b8e0cb; color:var(--green); }
+    .notice.is-stale { background:#fdecea; border-color:#f3c0bb; color:var(--red); }
     .panel { padding:24px; min-height:450px; } .panel h2 { margin:0 0 4px; font-size:22px; } .subtle { color:var(--muted); margin-top:0; font-size:13px; }
     .section { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; } .section h3 { margin:0 0 10px; font-size:14px; color:var(--ink); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
     .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; background:var(--wash); padding:12px; border-radius:8px; margin-bottom:12px; }
@@ -71,6 +73,7 @@
       <button id="refresh" class="ghost">Refresh</button>
     </section>
     <div id="notice" class="notice" hidden></div>
+    <div id="staleNotice" class="notice is-stale" hidden></div>
     <div class="grid">
       <section id="list" class="list">
         <div class="empty">Connect to see pending reviews and customer applications.</div>
@@ -89,6 +92,7 @@
     const countEl = document.querySelector('#count');
     const identityEl = document.querySelector('#identity');
     const noticeEl = document.querySelector('#notice');
+    const staleNoticeEl = document.querySelector('#staleNotice');
 
     const CATEGORY_LABELS = {
       account_opening: 'Account Opening',
@@ -137,8 +141,9 @@
       return data;
     }
 
-    function renderNotice(unreadCount) {
+    function renderNotice(unreadCount, staleCount) {
       const count = Number(unreadCount) || 0;
+      const stale = Number(staleCount) || 0;
       noticeEl.hidden = false;
       if (count > 0) {
         noticeEl.className = 'notice has-unread';
@@ -146,6 +151,15 @@
       } else {
         noticeEl.className = 'notice all-clear';
         noticeEl.textContent = "You're all caught up — no unreviewed items.";
+      }
+      // Stale segment: only shown when there is at least one item waiting > 24h.
+      if (stale > 0) {
+        staleNoticeEl.hidden = false;
+        staleNoticeEl.className = 'notice is-stale';
+        staleNoticeEl.textContent = `${stale} item${stale === 1 ? '' : 's'} waiting over 24 hours — needs review`;
+      } else {
+        staleNoticeEl.hidden = true;
+        staleNoticeEl.textContent = '';
       }
     }
 
@@ -162,7 +176,7 @@
           identityEl.textContent = 'Connected (Banker)';
         }
 
-        renderNotice(data.unreadCount);
+        renderNotice(data.unreadCount, data.staleCount);
 
         // Render rows in the exact server-returned order (do NOT re-sort — R2.4).
         listEl.innerHTML = sessions.length ? sessions.map(s => {
@@ -179,6 +193,7 @@
             <small>${escapeHtml(s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '')}</small>
             <span class="badge ${s.status === 'pending_review' || s.status === 'Pending' ? 'pending' : ''}">${escapeHtml(s.status || 'Pending')}</span>
             ${categoryLabel ? `<span class="badge category">${escapeHtml(categoryLabel)}</span>` : ''}
+            ${s.isStale ? `<span class="badge stale">⏰ Over 24h</span>` : ''}
             ${isUnread ? `<span class="mark-read" role="button" tabindex="0" data-mark-read="${escapeHtml(s.itemId || '')}">Mark as read</span>` : ''}
           </button>
         `;

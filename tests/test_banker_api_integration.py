@@ -43,10 +43,12 @@ _TABLE_ENV = {
     "ACCOUNTS_TABLE": "accounts",
     "CREDIT_TABLE": "credit",
     "READ_STATE_TABLE": "bluey-banker-read-state",
+    "ASSIGNMENTS_TABLE": "bluey-banker-assignments",
 }
 
 # Handful of email constants mirroring the seed data.
 _EMAIL_GENERAL = "lindiwe.dube@standardbank.co.za"  # banker-001, tier general
+_EMAIL_GENERAL_2 = "sipho.mabaso@standardbank.co.za"  # banker-002, tier general
 _EMAIL_PREMIUM = "themba.ndlovu@standardbank.co.za"  # banker-003, tier premium
 
 _HANDLER_PATH = (
@@ -81,6 +83,7 @@ def _create_tables(dynamodb):
         _TABLE_ENV["READ_STATE_TABLE"],
         [("bankerId", "HASH"), ("itemId", "RANGE")],
     )
+    table(_TABLE_ENV["ASSIGNMENTS_TABLE"], [("itemId", "HASH")])
 
 
 def _seed(dynamodb):
@@ -96,6 +99,7 @@ def _seed(dynamodb):
     """
     bankers = dynamodb.Table(_TABLE_ENV["BANKERS_TABLE"])
     bankers.put_item(Item={"bankerId": "banker-001", "email": _EMAIL_GENERAL, "tier": "general"})
+    bankers.put_item(Item={"bankerId": "banker-002", "email": _EMAIL_GENERAL_2, "tier": "general"})
     bankers.put_item(Item={"bankerId": "banker-003", "email": _EMAIL_PREMIUM, "tier": "premium"})
 
     customers = dynamodb.Table(_TABLE_ENV["CUSTOMERS_TABLE"])
@@ -234,6 +238,11 @@ _VALID_CATEGORIES = {
 def test_list_general_banker_sees_categorized_routed_ordered_unread(handler):
     """banker-001 (general) list is categorized, correctly routed, ordered, unread.
 
+    With workload allocation wired in, the unassigned walk-in is allocated to
+    the least-loaded general banker. banker-001 already owns APP-1 (workload 1)
+    while banker-002 owns nothing (workload 0), so the walk-in is allocated to
+    banker-002 and banker-001 therefore sees only its own assigned APP-1.
+
     Validates: Requirements 1.1, 2.1, 3.3, 4.1, 4.2, 5.1, 5.3, 5.4
     """
     status, body = _parse(handler.lambda_handler(_list_event(_EMAIL_GENERAL), None))
@@ -245,35 +254,30 @@ def test_list_general_banker_sees_categorized_routed_ordered_unread(handler):
     sessions = body["sessions"]
     item_ids = {s["itemId"] for s in sessions}
 
-    # Routing (R5.1, R5.3, R5.4): general banker sees the general-pool walk-in
-    # and their own assigned application, but NOT banker-003's credit item.
-    assert "session#sess-walkin" in item_ids
+    # Routing (R5.1, R5.3, R5.4): banker-001 sees its own assigned application,
+    # but NOT the walk-in (allocated to banker-002) nor banker-003's credit item.
     assert "application#APP-1" in item_ids
+    assert "session#sess-walkin" not in item_ids
     assert "credit#cust-002#credit-002" not in item_ids
-    assert len(sessions) == 2
+    assert len(sessions) == 1
 
     by_id = {s["itemId"]: s for s in sessions}
     # Categorization (R1.1): every item carries a valid workCategory.
     for s in sessions:
         assert s["workCategory"] in _VALID_CATEGORIES
-    assert by_id["session#sess-walkin"]["workCategory"] == "pre_visit_enquiry"
     assert by_id["application#APP-1"]["workCategory"] == "account_opening"
 
-    # Routing designation reporting: walk-in is general_pool, APP-1 is assigned.
-    assert by_id["session#sess-walkin"]["routing"] == "general_pool"
+    # Routing designation reporting: APP-1 is assigned to banker-001.
     assert by_id["application#APP-1"]["routing"] == "assigned"
 
     # Ordering (R2.1): oldest-first — createdAt non-decreasing across dated items.
     dated = [s["createdAt"] for s in sessions if s.get("createdAt")]
     assert dated == sorted(dated)
-    # Concretely, the 2026-08-20 walk-in precedes the 2026-08-24 application.
-    assert sessions[0]["itemId"] == "session#sess-walkin"
-    assert sessions[1]["itemId"] == "application#APP-1"
 
     # Read state (R4.1, R4.2): initially every item is unread and the count matches.
     for s in sessions:
         assert s["readState"] == "unread"
-    assert body["unreadCount"] == 2
+    assert body["unreadCount"] == 1
 
 
 def test_list_premium_banker_sees_only_assigned_credit(handler):
@@ -413,3 +417,101 @@ def test_mark_read_non_bankers_group_is_forbidden(handler):
     status, body = _parse(handler.lambda_handler(event, None))
     assert status == 403
     assert "forbidden" in body["error"]
+
+
+# ===========================================================================
+# stale-query-notification — staleness surfaced in the list payload
+# ===========================================================================
+def test_list_payload_includes_stale_count_and_per_session_is_stale(handler):
+    """The list payload carries a top-level staleCount and per-session isStale.
+
+    Every session object exposes a boolean ``isStale`` and the top-level
+    ``staleCount`` equals the number of stale sessions.
+
+    Validates: Requirements 6.2, 6.3, 6.4, 6.7
+    """
+    status, body = _parse(handler.lambda_handler(_list_event(_EMAIL_GENERAL), None))
+    assert status == 200
+
+    # Top-level staleCount present and well-formed (R6.2).
+    assert "staleCount" in body
+    assert isinstance(body["staleCount"], int)
+    assert body["staleCount"] >= 0
+
+    sessions = body["sessions"]
+    # Every session carries a boolean isStale that is never absent/null (R6.3, R6.7).
+    for s in sessions:
+        assert "isStale" in s
+        assert isinstance(s["isStale"], bool)
+
+    # staleCount equals the number of stale sessions (R6.4).
+    assert body["staleCount"] == sum(1 for s in sessions if s["isStale"])
+    assert 0 <= body["staleCount"] <= len(sessions)
+
+
+def test_list_seeded_items_over_24h_are_flagged_stale(handler):
+    """The seeded 2026-08 items are far older than 24h, so all are stale.
+
+    Confirms real ISO timestamps flow through the Waiting_Time derivation into
+    the staleness flag end to end.
+
+    Validates: Requirements 6.4
+    """
+    status, body = _parse(handler.lambda_handler(_list_event(_EMAIL_GENERAL), None))
+    assert status == 200
+
+    sessions = body["sessions"]
+    assert sessions, "expected at least one seeded session"
+    # All seeded createdAt values are well in the past relative to now, so every
+    # dated session must be flagged stale and staleCount must equal that total.
+    for s in sessions:
+        assert s["isStale"] is True
+    assert body["staleCount"] == len(sessions)
+
+
+# ===========================================================================
+# banker-workload-allocation — general-pool item allocation end to end
+# ===========================================================================
+def test_list_allocates_walkin_to_general_banker_and_persists_and_flips_ownership(handler):
+    """An unassigned walk-in is allocated to a general banker, persisted, and flips to assigned.
+
+    The seeded walk-in session (``sess-walkin``) has no ``customerId`` and thus
+    no ``personalBanker``, so it starts in the General_Pool. banker-001 already
+    owns APP-1 (workload 1) while banker-002 owns nothing (workload 0), so the
+    least-loaded general banker is banker-002.
+
+    Asserts:
+      1. A ``list`` call as a general banker allocates the walk-in to a general
+         banker (routing == "assigned" and it appears for the owning banker),
+         and an Allocation_Record now exists in the assignments table for that
+         itemId (read the assignments table directly to confirm).
+      2. A ``list`` call as the OTHER general banker does NOT show the walk-in,
+         confirming it flipped from general_pool to assigned (owned by the
+         allocated banker only).
+
+    Validates: Requirements 6.1, 6.2, 6.3
+    """
+    walkin_id = "session#sess-walkin"
+
+    # (1) List as banker-002 (least loaded) — the walk-in is allocated to it.
+    status, body = _parse(handler.lambda_handler(_list_event(_EMAIL_GENERAL_2), None))
+    assert status == 200
+    assert body["bankerId"] == "banker-002"
+    assert body["tier"] == "general"
+
+    by_id = {s["itemId"]: s for s in body["sessions"]}
+    assert walkin_id in by_id, "walk-in should be allocated to and visible for banker-002"
+    assert by_id[walkin_id]["routing"] == "assigned"
+
+    # An Allocation_Record now exists for the walk-in, owned by banker-002.
+    dynamodb = boto3.resource("dynamodb", region_name=_REGION)
+    assignments = dynamodb.Table(_TABLE_ENV["ASSIGNMENTS_TABLE"])
+    record = assignments.get_item(Key={"itemId": walkin_id}).get("Item")
+    assert record is not None, "an Allocation_Record must be persisted for the walk-in"
+    assert record["assignedBankerId"] == "banker-002"
+
+    # (2) List as the OTHER general banker (banker-001) — it must NOT see the
+    # walk-in, confirming ownership flipped from general_pool to assigned.
+    _, other = _parse(handler.lambda_handler(_list_event(_EMAIL_GENERAL), None))
+    other_ids = {s["itemId"] for s in other["sessions"]}
+    assert walkin_id not in other_ids, "the allocated walk-in must not be visible to banker-001"

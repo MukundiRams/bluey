@@ -131,6 +131,7 @@ class BlueyPlatformStack(Stack):
         data_stack.tables["bankers"].grant_read_data(banker_role)
         data_stack.tables["messages"].grant_read_data(banker_role)
         data_stack.tables["read_state"].grant_read_write_data(banker_role)
+        data_stack.tables["assignments"].grant_read_write_data(banker_role)
         data_stack.documents_bucket.grant_read(banker_role)
 
         # Document API: private upload/read + metadata and review flag.
@@ -165,6 +166,7 @@ class BlueyPlatformStack(Stack):
         self.financial_advice_fn = fn("bluey-financial-advice-proxy", financial_advice_role, timeout=90)
         self.banker_fn = fn("bluey-banker-api", banker_role, timeout=30)
         self.banker_fn.add_environment("READ_STATE_TABLE", data_stack.tables["read_state"].table_name)
+        self.banker_fn.add_environment("ASSIGNMENTS_TABLE", data_stack.tables["assignments"].table_name)
         self.document_fn = fn("bluey-document-api", document_role, timeout=30)
 
         # Harness-invoking Lambdas deliberately use Function URLs because the

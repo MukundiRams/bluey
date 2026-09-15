@@ -18,12 +18,15 @@ Then open index.html (see scripts note) and set:
     Cognito ID token: anything (e.g. "dev")
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 HOST = "127.0.0.1"
 PORT = 8010
+
+# Staleness boundary mirrored from the banker API: pending > 24h is stale.
+STALE_THRESHOLD = timedelta(hours=24)
 
 # Which banker this stub pretends is signed in. Switch to "banker-003"/"premium"
 # to see the premium-tier routing (only their own assigned client, no pool).
@@ -32,6 +35,15 @@ STUB_BANKER = {"bankerId": "banker-001", "tier": "general"}
 
 def _iso(day, hour):
     return f"2026-08-{day:02d}T{hour:02d}:00:00+00:00"
+
+
+def _hours_ago(hours):
+    """ISO-8601 timestamp `hours` before the current time (tz-aware UTC).
+
+    Used to seed items whose staleness is stable regardless of the calendar
+    date the stub is run on, so the >24h banner/badge is always demonstrable.
+    """
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
 # Seeded queue items already in the shape the portal consumes. Deliberately NOT
@@ -89,6 +101,35 @@ _SEED_ITEMS = [
         "createdAt": _iso(26, 15),
         "updatedAt": _iso(26, 15),
     },
+    {
+        # Clearly OLD (30h ago) so it is always flagged stale (> 24h). Dated
+        # relative to "now" so the stale banner/badge show regardless of date.
+        "itemId": "session#sess-stale-demo",
+        "sessionId": "sess-stale-demo",
+        "reference": None,
+        "customerId": None,
+        "fullName": "Sipho Stale-Demo",
+        "accountType": "Enquiry",
+        "workCategory": "pre_visit_enquiry",
+        "routing": "general_pool",
+        "status": "pending_review",
+        "createdAt": _hours_ago(30),
+        "updatedAt": _hours_ago(30),
+    },
+    {
+        # Clearly FRESH (2h ago) so it is never flagged stale — contrast case.
+        "itemId": "session#sess-fresh-demo",
+        "sessionId": "sess-fresh-demo",
+        "reference": None,
+        "customerId": None,
+        "fullName": "Fresh Walk-In",
+        "accountType": "Enquiry",
+        "workCategory": "pre_visit_enquiry",
+        "routing": "general_pool",
+        "status": "pending_review",
+        "createdAt": _hours_ago(2),
+        "updatedAt": _hours_ago(2),
+    },
 ]
 
 # In-memory read state for this stub banker: set of itemIds marked read.
@@ -103,18 +144,43 @@ def _sort_oldest_first(items):
     return sorted(items, key=key)
 
 
+def _parse_ts(value):
+    """Tolerant ISO-8601 parse to a tz-aware datetime, or None (mirrors backend)."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _is_stale(item, now):
+    """True when a dated item's age strictly exceeds 24h (mirrors the backend)."""
+    waiting = _parse_ts(item.get("createdAt")) or _parse_ts(item.get("updatedAt"))
+    if waiting is None:
+        return False
+    return (now - waiting) > STALE_THRESHOLD
+
+
 def _build_list_payload():
     ordered = _sort_oldest_first(_SEED_ITEMS)
+    now = datetime.now(timezone.utc)
     sessions = []
     for it in ordered:
         row = dict(it)
         row["readState"] = "read" if it["itemId"] in _READ_IDS else "unread"
+        row["isStale"] = _is_stale(it, now)
         sessions.append(row)
     unread = sum(1 for s in sessions if s["readState"] == "unread")
+    stale = sum(1 for s in sessions if s["isStale"])
     return {
         "bankerId": STUB_BANKER["bankerId"],
         "tier": STUB_BANKER["tier"],
         "unreadCount": unread,
+        "staleCount": stale,
         "sessions": sessions,
         "applications": [],
     }
