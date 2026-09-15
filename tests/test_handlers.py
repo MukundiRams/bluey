@@ -94,6 +94,11 @@ def test_banker_list_and_detail(monkeypatch):
     applications = [{"reference": "APP-001", "sessionId": "sess-test", "status": "Pending", "applicantData": {"fullName": "John Doe"}}]
     customers = [{"customerId": "cust-001", "fullName": "John Doe", "idNumber": "9001011234089"}]
     docs = [{"sessionId": "sess-test", "docType": "id_document", "status": "uploaded", "s3Key": "docs/id.pdf"}]
+    # The banker-query-triage feature resolves the signed-in banker via the
+    # Cognito email claim -> bluey-bankers.email. Seed a matching general-tier
+    # banker so the list action resolves an identity (walk-in items route to
+    # the general pool, which a general-tier banker can see).
+    bankers = [{"bankerId": "banker-001", "email": "banker@standardbank.co.za", "tier": "general"}]
 
     monkeypatch.setattr(module, "sessions_table", MockTable(sessions))
     monkeypatch.setattr(module, "applications_table", MockTable(applications))
@@ -101,9 +106,12 @@ def test_banker_list_and_detail(monkeypatch):
     monkeypatch.setattr(module, "documents_table", MockTable(docs))
     monkeypatch.setattr(module, "accounts_table", MockTable([]))
     monkeypatch.setattr(module, "credit_table", MockTable([]))
+    monkeypatch.setattr(module, "bankers_table", MockTable(bankers))
+    monkeypatch.setattr(module, "read_state_table", MockTable([]))
 
     auth_event = {
-        "requestContext": {"authorizer": {"jwt": {"claims": {"cognito:groups": "Bankers"}}}},
+        "requestContext": {"authorizer": {"jwt": {"claims": {
+            "cognito:groups": "Bankers", "email": "banker@standardbank.co.za"}}}},
         "queryStringParameters": {"action": "list"}
     }
     resp = module.lambda_handler(auth_event, None)
@@ -113,7 +121,8 @@ def test_banker_list_and_detail(monkeypatch):
     assert len(body["sessions"]) >= 1
 
     detail_event = {
-        "requestContext": {"authorizer": {"jwt": {"claims": {"cognito:groups": "Bankers"}}}},
+        "requestContext": {"authorizer": {"jwt": {"claims": {
+            "cognito:groups": "Bankers", "email": "banker@standardbank.co.za"}}}},
         "queryStringParameters": {"action": "detail", "sessionId": "sess-test"}
     }
     resp = module.lambda_handler(detail_event, None)

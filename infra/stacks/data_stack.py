@@ -34,6 +34,7 @@ class BlueyDataStack(Stack):
         self.tables["bankers"] = table("bluey-bankers", "bankerId")
         self.tables["credit"] = table("bluey-credit", "customerId", "sessionId")
         self.tables["messages"] = table("bluey-messages", "sessionId", "createdAt#messageId")
+        self.tables["read_state"] = table("bluey-banker-read-state", "bankerId", "itemId")
 
         self.credit_data_bucket = s3.Bucket(
             self, "CreditDataBucket",

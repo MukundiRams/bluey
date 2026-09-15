@@ -557,6 +557,9 @@ CREDIT = [
         "creditScore": 612,
         "rating": "fair",
         "lastUpdated": iso(31, 8),
+        "reviewStatus": "pending_review",
+        "createdAt": iso(25, 9),
+        "updatedAt": iso(25, 9),
     },
     {
         "customerId": "cust-002",
@@ -578,6 +581,9 @@ CREDIT = [
         "creditScore": 480,
         "rating": "poor",
         "lastUpdated": iso(31, 8),
+        "reviewStatus": "pending_review",
+        "createdAt": iso(28, 9),
+        "updatedAt": iso(28, 9),
     },
     {
         "customerId": "cust-005",
